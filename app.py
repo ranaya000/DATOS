@@ -125,10 +125,8 @@ with col_sup1:
     if st.button("💾 GUARDAR TODOS LOS CAMBIOS GENERALES"):
         st.success("¡Todos los cambios y movimientos han sido guardados y consolidados exitosamente en el sistema!")
 with col_sup2:
-    # Generar archivo Excel con múltiples hojas usando engine='openpyxl'
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # 1. Hoja de Stock Actualizado
         df_stock_exp = pd.DataFrame([{
             "Categoría": i['categoria'],
             "Producto": i['producto'],
@@ -139,12 +137,10 @@ with col_sup2:
         } for i in st.session_state.inventario_bienes])
         df_stock_exp.to_excel(writer, sheet_name='Stock_Actual', index=False)
         
-        # 2. Hoja de Movimientos
         if st.session_state.historial_movimientos:
             df_movs_exp = pd.DataFrame(st.session_state.historial_movimientos)
             df_movs_exp.to_excel(writer, sheet_name='Movimientos', index=False)
             
-        # 3. Hojas de Seguimiento de Gerencias
         for k_seg, df_seg in dict_seguimiento_global.items():
             sheet_name_clean = ''.join(c for c in k_seg if c.isalnum() or c==' ')[:31]
             df_seg.to_excel(writer, sheet_name=sheet_name_clean, index=False)
@@ -288,19 +284,33 @@ with tab2:
 # --- PESTAÑA 3: MOVIMIENTOS (HISTORIAL GENERAL) ---
 with tab3:
     st.subheader("Historial General de Movimientos (Entradas, Salidas y Bajas)")
-    st.markdown("Si hubo algún error al registrar un movimiento, puedes **eliminarlo** directamente desde la tabla a continuación.")
+    st.markdown("Selecciona en la casilla **'Borrar'** de la tabla los movimientos erróneos y haz clic en el botón inferior para eliminarlos.")
     
     if st.session_state.historial_movimientos:
-        for idx_m, mov_item in enumerate(st.session_state.historial_movimientos):
-            cols_m = st.columns([8, 1])
-            with cols_m[0]:
-                st.write(f"**[{mov_item.get('Tipo', 'MOVIMIENTO')}]** Prod: {mov_item.get('Descripción del Producto')} | Cant: {mov_item.get('Cantidad')} | Ref/Detalle: {mov_item.get('Detalle / Motivo', mov_item.get('Guía de remisión', ''))}")
-            with cols_m[1]:
-                if st.button("🗑️ Borrar", key=f"del_mov_{idx_m}"):
+        df_movs_total = pd.DataFrame(st.session_state.historial_movimientos)
+        # Añadir una columna de selección (checkbox) al inicio del DataFrame
+        df_movs_total.insert(0, "Borrar", False)
+        
+        # Mostrar tabla interactiva donde se pueden marcar los checkboxes
+        df_editado = st.data_editor(
+            df_movs_total,
+            use_container_width=True,
+            column_config={"Borrar": st.column_config.CheckboxColumn("🗑️ Borrar", required=True)},
+            disabled=[col for col in df_movs_total.columns if col != "Borrar"]
+        )
+        
+        if st.button("🗑️ Eliminar registros seleccionados"):
+            # Obtener índices de las filas marcadas para borrar (orden descendente para no alterar índices al eliminar)
+            indices_a_borrar = df_editado[df_editado["Borrar"] == True].index.tolist()
+            
+            if indices_a_borrar:
+                for idx in sorted(indices_a_borrar, reverse=True):
+                    mov_item = st.session_state.historial_movimientos[idx]
                     prod_afectado = mov_item.get('Descripción del Producto')
                     cant_afectada = float(mov_item.get('Cantidad', 0))
                     tipo_afectado = mov_item.get('Tipo')
                     
+                    # Revertir stock
                     for prod in st.session_state.inventario_bienes:
                         if prod['producto'] == prod_afectado:
                             if tipo_afectado == "INGRESO":
@@ -308,15 +318,14 @@ with tab3:
                             elif tipo_afectado in ["SALIDA", "BAJA"]:
                                 prod['stock_actual'] += cant_afectada
                             break
-                            
-                    st.session_state.historial_movimientos.pop(idx_m)
-                    st.success("¡Movimiento eliminado y stock ajustado correctamente!")
-                    st.rerun()
-        
-        st.markdown("---")
-        st.markdown("**Vista consolidada de movimientos:**")
-        df_movs_total = pd.DataFrame(st.session_state.historial_movimientos)
-        st.dataframe(df_movs_total, use_container_width=True)
+                    
+                    # Eliminar del historial
+                    st.session_state.historial_movimientos.pop(idx)
+                
+                st.success("¡Registros seleccionados eliminados y stock ajustado correctamente!")
+                st.rerun()
+            else:
+                st.warning("No has seleccionado ningún registro para borrar.")
     else:
         st.warning("No hay registros de movimientos disponibles.")
 
