@@ -167,19 +167,31 @@ with tab1:
     st.subheader("Registro de Operaciones (Entrada, Salida o Baja)")
     tipo_operacion = st.selectbox("Tipo de Operación:", ['SALIDA (ENTREGA A ÁREA)', 'INGRESO (COMPRA/ADQUISICIÓN)', 'BAJA (MERMA/DETERIORO)'])
     
-    col_op1, col_op2 = st.columns(2)
-    with col_op1:
-        if "SALIDA" in tipo_operacion:
-            referencia_origen = st.text_input("Guía de Remisión / Personal Solicitante", placeholder="Ej. Juan Pérez / Guía 001")
-        elif "INGRESO" in tipo_operacion:
-            referencia_origen = st.text_input("Nro PECOSA / Orden de Compra", placeholder="Ej. PECOSA 123 / O/C 456")
-        else:
-            referencia_origen = st.text_input("Motivo de la Baja", placeholder="Ej. Deterioro o rotura de almacén")
-            
-    with col_op2:
-        observacion_op = st.text_input("Observación / Detalle adicional", placeholder="Ej. Urgente para proceso electoral")
+    referencia_origen = ""
+    
+    if "SALIDA" in tipo_operacion:
+        col_op1, col_op2 = st.columns(2)
+        with col_op1:
+            personal_solicitante = st.text_input("Personal Solicitante", placeholder="Ej. Juan Pérez")
+        with col_op2:
+            fecha_salida = st.date_input("Fecha de salida")
+        referencia_origen = f"Personal: {personal_solicitante} | Fecha: {fecha_salida}"
+        
+    elif "INGRESO" in tipo_operacion:
+        col_op1, col_op2 = st.columns(2)
+        with col_op1:
+            nro_pecosa = st.text_input("Nro PECOSA", placeholder="Ej. PECOSA 123")
+            orden_compra = st.text_input("Orden de Compra", placeholder="Ej. O/C 456")
+        with col_op2:
+            nro_pedido = st.text_input("Nro de pedido", placeholder="Ej. Pedido 789")
+            fecha_ingreso = st.date_input("Fecha de ingreso")
+        referencia_origen = f"PECOSA: {nro_pecosa} | O/C: {orden_compra} | Pedido: {nro_pedido} | Fecha: {fecha_ingreso}"
+        
+    else:  # BAJA
+        motivo_baja = st.text_input("Motivo de la Baja", placeholder="Ej. Deterioro o rotura de almacén")
+        referencia_origen = f"Motivo: {motivo_baja}"
 
-    buscar_prod_reg = st.text_input("Buscar producto en inventario para operar:")
+    buscar_prod_reg = st.text_input("Buscar palabra clave:")
     opciones_prod = {f"{i['producto']} (Stock Actual: {i['stock_actual']})": i['producto'] for i in st.session_state.inventario_bienes if not buscar_prod_reg or buscar_prod_reg.lower() in i['producto'].lower()}
     
     prod_seleccionado_label = st.selectbox("Seleccione Producto:", options=list(opciones_prod.keys()) if opciones_prod else ["No encontrado"])
@@ -187,7 +199,7 @@ with tab1:
 
     btn_c1, btn_c2 = st.columns(2)
     with btn_c1:
-        if st.button("➕ Agregar al Carrito de Operación"):
+        if st.button("➕ Agregar operación"):
             if prod_seleccionado_label and prod_seleccionado_label != "No encontrado":
                 nombre_p = opciones_prod[prod_seleccionado_label]
                 prod_obj = next((i for i in st.session_state.inventario_bienes if i['producto'] == nombre_p), None)
@@ -199,17 +211,16 @@ with tab1:
                             "producto": nombre_p,
                             "cantidad": cantidad_op,
                             "tipo": tipo_operacion,
-                            "ref": referencia_origen,
-                            "obs": observacion_op
+                            "ref": referencia_origen
                         })
-                        st.success(f"Añadido al carrito: {nombre_p} ({cantidad_op})")
+                        st.success(f"Añadido a operaciones: {nombre_p} ({cantidad_op})")
 
-    st.markdown("**Resumen del Carrito de Operación:**")
+    st.markdown("**Resumen de operaciones:**")
     if st.session_state.carrito_operaciones:
         for idx_it, itm in enumerate(st.session_state.carrito_operaciones):
             cols_car = st.columns([6, 1])
             with cols_car[0]:
-                st.text(f"• [{itm['tipo']}] {itm['producto']} - Cantidad: {itm['cantidad']} | Ref: {itm['ref']}")
+                st.text(f"• [{itm['tipo']}] {itm['producto']} - Cantidad: {itm['cantidad']} | {itm['ref']}")
             with cols_car[1]:
                 if st.button("❌", key=f"del_carrito_{idx_it}"):
                     st.session_state.carrito_operaciones.pop(idx_it)
@@ -233,9 +244,7 @@ with tab1:
                             "Tipo": t_mov,
                             "Descripción del Producto": prod['producto'],
                             "Cantidad": itm['cantidad'],
-                            "Guía de remisión": itm['ref'] if "SALIDA" in itm['tipo'] else "",
-                            "PECOSA / O.C.": itm['ref'] if "INGRESO" in itm['tipo'] else "",
-                            "Detalle / Motivo": f"{itm['ref']} - {itm['obs']}"
+                            "Detalle / Referencia": itm['ref']
                         }
                         st.session_state.historial_movimientos.append(nuevo_movimiento)
                         break
@@ -244,7 +253,7 @@ with tab1:
             st.success("¡Operaciones aplicadas y registradas correctamente!")
             st.rerun()
     else:
-        st.caption("(El carrito está vacío)")
+        st.caption("(Registro de operaciones vacío)")
 
 # --- PESTAÑA 2: STOCK Y GUARDADO ---
 with tab2:
