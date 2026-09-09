@@ -155,12 +155,11 @@ with col_sup2:
 
 st.markdown("---")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "📝 Registrar", 
     "📊 Stock y Guardado", 
     "📤 Movimientos (Entradas, Salidas y Bajas)", 
-    "🔍 Gerencia, Subgerencia y Seguimiento", 
-    "📋 Kardex (Fraccionado)"
+    "🔍 Gerencia, Subgerencia y Seguimiento"
 ])
 
 # --- PESTAÑA 1: REGISTRAR ---
@@ -284,14 +283,12 @@ with tab2:
 # --- PESTAÑA 3: MOVIMIENTOS (HISTORIAL GENERAL) ---
 with tab3:
     st.subheader("Historial General de Movimientos (Entradas, Salidas y Bajas)")
-    st.markdown("Selecciona en la casilla **'Borrar'** de la tabla los movimientos erróneos y haz clic en el botón inferior para eliminarlos.")
+    st.markdown("Marca en la columna **'Borrar'** de la tabla los registros erróneos y haz clic en el botón inferior para eliminarlos.")
     
     if st.session_state.historial_movimientos:
         df_movs_total = pd.DataFrame(st.session_state.historial_movimientos)
-        # Añadir una columna de selección (checkbox) al inicio del DataFrame
         df_movs_total.insert(0, "Borrar", False)
         
-        # Mostrar tabla interactiva donde se pueden marcar los checkboxes
         df_editado = st.data_editor(
             df_movs_total,
             use_container_width=True,
@@ -300,7 +297,6 @@ with tab3:
         )
         
         if st.button("🗑️ Eliminar registros seleccionados"):
-            # Obtener índices de las filas marcadas para borrar (orden descendente para no alterar índices al eliminar)
             indices_a_borrar = df_editado[df_editado["Borrar"] == True].index.tolist()
             
             if indices_a_borrar:
@@ -310,7 +306,6 @@ with tab3:
                     cant_afectada = float(mov_item.get('Cantidad', 0))
                     tipo_afectado = mov_item.get('Tipo')
                     
-                    # Revertir stock
                     for prod in st.session_state.inventario_bienes:
                         if prod['producto'] == prod_afectado:
                             if tipo_afectado == "INGRESO":
@@ -319,7 +314,6 @@ with tab3:
                                 prod['stock_actual'] += cant_afectada
                             break
                     
-                    # Eliminar del historial
                     st.session_state.historial_movimientos.pop(idx)
                 
                 st.success("¡Registros seleccionados eliminados y stock ajustado correctamente!")
@@ -379,35 +373,3 @@ with tab4:
             st.warning("El archivo seleccionado está vacío.")
     else:
         st.warning("No se encontraron archivos de seguimiento en el directorio.")
-
-# --- PESTAÑA 5: KARDEX ---
-with tab5:
-    st.subheader("Kardex Fraccionado por Producto")
-    lista_kardex_cat = ['[TODOS]'] + sorted(list(set(i['categoria'] for i in st.session_state.inventario_bienes)))
-    lista_kardex_prov = ['[TODOS]'] + sorted(list(set(i['proveedor'] for i in st.session_state.inventario_bienes if i['proveedor'])))
-    
-    k_cat = st.selectbox("Categoría Kardex:", lista_kardex_cat, key="k_cat")
-    k_prov = st.selectbox("Proveedor Kardex:", lista_kardex_prov, key="k_prov")
-    k_buscar = st.text_input("Buscar producto en Kardex:", key="k_bus")
-    
-    opts_k = []
-    for i in st.session_state.inventario_bienes:
-        m_txt = not k_buscar or k_buscar.lower() in i['producto'].lower()
-        m_cat = k_cat == '[TODOS]' or i['categoria'] == k_cat
-        m_prov = k_prov == '[TODOS]' or i['proveedor'] == k_prov
-        if m_txt and m_cat and m_prov:
-            opts_k.append((i['producto'], i['producto']))
-            
-    prod_k_sel = st.selectbox("Seleccione Producto:", options=[o[1] for o in opts_k], format_func=lambda x: next((o[0] for o in opts_k if o[1] == x), ""))
-    
-    if prod_k_sel:
-        prod_data = next((i for i in st.session_state.inventario_bienes if i['producto'] == prod_k_sel), None)
-        if prod_data:
-            st.markdown(f"**Producto:** {prod_data['producto']}")
-            st.markdown(f"**Categoría:** {prod_data['categoria']} | **Proveedor/Marca:** {prod_data['proveedor']} | **Stock Inicial:** {prod_data['stock_inicial']} | **Stock Actual:** {prod_data['stock_actual']}")
-            
-            historial_prod = [m for m in st.session_state.historial_movimientos if str(m.get('Descripción del Producto', '')).strip().upper() == prod_data['producto']]
-            if historial_prod:
-                st.dataframe(pd.DataFrame(historial_prod), use_container_width=True)
-            else:
-                st.info("No hay movimientos registrados para este producto.")
