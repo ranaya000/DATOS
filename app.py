@@ -67,15 +67,19 @@ def cargar_datos_sistema():
         except Exception:
             pass
 
+    # Intentar cargar desde los archivos locales actualizados (si existen)
     try:
         df_movimientos_init = pd.read_excel('movimientos.xlsx')
     except Exception:
         pass
 
     try:
-        df_stock = pd.read_excel('stock_2.xlsx')
+        df_stock = pd.read_excel('stock_actualizado.xlsx')
     except Exception:
-        pass
+        try:
+            df_stock = pd.read_excel('stock_2.xlsx')
+        except Exception:
+            pass
 
     return dict_seguimiento, df_movimientos_init, df_stock
 
@@ -90,6 +94,7 @@ if 'inventario_bienes' not in st.session_state:
             cat = str(r.get('Categoría', 'GENERAL')).strip().upper()
             prov = str(r.get('Proveedor', r.get('Proveedor / Marca', ''))).strip().upper()
             stock_ini = float(r.get('Inventario Inicial', 0.0) or 0.0)
+            stock_act = float(r.get('Stock Actual', stock_ini) or stock_ini)
             unid = str(r.get('Unidad Medida', 'UNIDAD')).strip().upper()
             
             item = {
@@ -99,7 +104,7 @@ if 'inventario_bienes' not in st.session_state:
                 "proveedor": prov,
                 "unidad": unid,
                 "stock_inicial": stock_ini,
-                "stock_actual": stock_ini
+                "stock_actual": stock_act
             }
             inventario_temp.append(item)
     st.session_state.inventario_bienes = inventario_temp
@@ -109,12 +114,10 @@ if 'historial_movimientos' not in st.session_state:
     if not df_movimientos_init_global.empty:
         for _, row in df_movimientos_init_global.iterrows():
             d_dict = row.to_dict()
-            # Mapeo y limpieza de columnas antiguas si es necesario
             if 'Tipo' in d_dict and 'Tipo de registro' not in d_dict:
-                d_dict['Tipo de registro'] = d_dict['Tipo']
+                d_dict['Tipo de registro'] = d_dict.pop('Tipo')
             if 'Guía de remisión' in d_dict:
                 d_dict['Personal solicitante'] = d_dict.pop('Guía de remisión')
-            # Eliminar columnas no deseadas
             for col_elim in ['Costo unitario', 'Subtotal', 'Detalle / Referencia', 'Detalle / Observación', 'Tipo']:
                 if col_elim in d_dict:
                     del d_dict[col_elim]
@@ -134,7 +137,33 @@ st.markdown("---")
 col_sup1, col_sup2 = st.columns([1, 1])
 with col_sup1:
     if st.button("💾 GUARDAR TODOS LOS CAMBIOS GENERALES"):
-        st.success("¡Todos los cambios y movimientos han sido guardados y consolidados exitosamente en el sistema!")
+        try:
+            # Guardar Stock Actualizado en 'stock_actualizado.xlsx'
+            df_stock_save = pd.DataFrame([{
+                "Categoría": i['categoria'],
+                "Producto": i['producto'],
+                "Proveedor": i['proveedor'],
+                "Unidad Medida": i['unidad'],
+                "Inventario Inicial": i['stock_inicial'],
+                "Stock Actual": i['stock_actual']
+            } for i in st.session_state.inventario_bienes])
+            df_stock_save.to_excel('stock_actualizado.xlsx', index=False)
+            
+            # Guardar Movimientos en 'movimientos.xlsx'
+            if st.session_state.historial_movimientos:
+                df_movs_save = pd.DataFrame(st.session_state.historial_movimientos)
+                df_movs_save.to_excel('movimientos.xlsx', index=False)
+            else:
+                pd.DataFrame(columns=[
+                    "Fecha registro", "Fecha operación", "Personal solicitante", 
+                    "Orden de compra", "Categoría", "Descripción del Producto", 
+                    "Proveedor", "Unidad Medida", "Cantidad", "Tipo de registro"
+                ]).to_excel('movimientos.xlsx', index=False)
+                
+            st.success("¡Todos los cambios y movimientos han sido guardados exitosamente en el servidor (archivos locales) y consolidados en el sistema!")
+        except Exception as e:
+            st.error(f"Error al guardar los archivos en el servidor: {e}")
+
 with col_sup2:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -181,6 +210,7 @@ with tab1:
     personal_solicitante = ""
     fecha_operacion = datetime.now().date()
     orden_compra = ""
+    motivo_baja = ""
     
     if "SALIDA" in tipo_operacion:
         col_op1, col_op2 = st.columns(2)
@@ -320,22 +350,18 @@ with tab3:
         for m in st.session_state.historial_movimientos:
             m_copy = m.copy()
             
-            # Normalizar columnas de tipo
             if 'Tipo' in m_copy and 'Tipo de registro' not in m_copy:
                 m_copy['Tipo de registro'] = m_copy.pop('Tipo')
             elif 'Tipo' in m_copy:
                 del m_copy['Tipo']
                 
-            # Renombrar Guía de remisión antigua si existiera
             if 'Guía de remisión' in m_copy:
                 m_copy['Personal solicitante'] = m_copy.pop('Guía de remisión')
                 
-            # Eliminar columnas no requeridas definitivamente
             for col_elim in ['Costo unitario', 'Subtotal', 'Detalle / Referencia', 'Detalle / Observación']:
                 if col_elim in m_copy:
                     del m_copy[col_elim]
             
-            # Asegurar proveedor desde inventario si falta
             if not m_copy.get('Proveedor') or str(m_copy.get('Proveedor')) == 'nan' or str(m_copy.get('Proveedor')) == 'None':
                 p_encontrado = next((i['proveedor'] for i in st.session_state.inventario_bienes if i['producto'] == m_copy.get('Descripción del Producto')), "")
                 m_copy['Proveedor'] = p_encontrado
@@ -424,8 +450,7 @@ with tab4:
                 mask = df_filtrado.astype(str).apply(lambda x: x.str.contains(busqueda_seg, case=False, na=False)).any(axis=1)
                 df_filtrado = df_filtrado[mask]
                 
-            st.write(f"Registros encontrados: {len(df_filtrado)}")
-            st.dataframe(df_filtrado, use_container_width=True)
+            st.write(df_filtrado)
         else:
             st.warning("El archivo seleccionado está vacío.")
     else:
