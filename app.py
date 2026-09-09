@@ -125,9 +125,9 @@ with col_sup1:
     if st.button("💾 GUARDAR TODOS LOS CAMBIOS GENERALES"):
         st.success("¡Todos los cambios y movimientos han sido guardados y consolidados exitosamente en el sistema!")
 with col_sup2:
-    # Generar archivo Excel con múltiples hojas
+    # Generar archivo Excel con múltiples hojas usando engine='openpyxl'
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
         # 1. Hoja de Stock Actualizado
         df_stock_exp = pd.DataFrame([{
             "Categoría": i['categoria'],
@@ -216,7 +216,6 @@ with tab1:
             with cols_car[0]:
                 st.text(f"• [{itm['tipo']}] {itm['producto']} - Cantidad: {itm['cantidad']} | Ref: {itm['ref']}")
             with cols_car[1]:
-                # Botón de eliminar ítem del carrito en caso de equivocación
                 if st.button("❌", key=f"del_carrito_{idx_it}"):
                     st.session_state.carrito_operaciones.pop(idx_it)
                     st.rerun()
@@ -292,14 +291,12 @@ with tab3:
     st.markdown("Si hubo algún error al registrar un movimiento, puedes **eliminarlo** directamente desde la tabla a continuación.")
     
     if st.session_state.historial_movimientos:
-        # Mostrar tabla de movimientos con botón de eliminar por cada fila
         for idx_m, mov_item in enumerate(st.session_state.historial_movimientos):
             cols_m = st.columns([8, 1])
             with cols_m[0]:
                 st.write(f"**[{mov_item.get('Tipo', 'MOVIMIENTO')}]** Prod: {mov_item.get('Descripción del Producto')} | Cant: {mov_item.get('Cantidad')} | Ref/Detalle: {mov_item.get('Detalle / Motivo', mov_item.get('Guía de remisión', ''))}")
             with cols_m[1]:
                 if st.button("🗑️ Borrar", key=f"del_mov_{idx_m}"):
-                    # Opcional: Revertir efecto en stock al borrar el movimiento si se desea
                     prod_afectado = mov_item.get('Descripción del Producto')
                     cant_afectada = float(mov_item.get('Cantidad', 0))
                     tipo_afectado = mov_item.get('Tipo')
