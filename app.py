@@ -251,16 +251,51 @@ with tab3:
 # --- PESTAÑA 4: CONSULTA AVANZADA POR ARCHIVOS DE SEGUIMIENTO Y GERENCIAS ---
 with tab4:
     st.subheader("Consulta por Gerencia / Subgerencia y Requerimientos")
-    st.markdown("Seleccione el archivo de seguimiento y busque lo solicitado por cada órgano, gerencia o subgerencia con sus cabeceras limpias y correctas.")
+    st.markdown("Seleccione el archivo de seguimiento y filtre por Órgano, Tipo de PPTO, o búsqueda general.")
     
     if dict_seguimiento_global:
         archivo_sel = st.selectbox("Seleccionar Archivo / Proceso:", options=list(dict_seguimiento_global.keys()))
         df_actual = dict_seguimiento_global[archivo_sel]
         
         if not df_actual.empty:
-            busqueda_seg = st.text_input("🔍 Buscar órgano, subgerencia, producto, descripción o detalle:")
+            # Buscar dinámicamente las columnas que coincidan con 'Órgano' y 'Tipo de PPTO' (o similares)
+            cols_disponibles = list(df_actual.columns)
+            col_organo = next((c for c in cols_disponibles if 'órgano' in str(c).lower() or 'organo' in str(c).lower()), None)
+            col_tpptto = next((c for c in cols_disponibles if 'tipo de ppto' in str(c).lower() or 'tpptto' in str(c).lower()), None)
             
+            f_col1, f_col2 = st.columns(2)
+            
+            # Filtro desglosado 1: Órgano
+            if col_organo:
+                valores_organo = ['[TODOS]'] + sorted(df_actual[col_organo].dropna().astype(str).unique().tolist())
+                with f_col1:
+                    sel_organo = st.selectbox("Seleccionar Órgano:", options=valores_organo)
+            else:
+                with f_col1:
+                    sel_organo = '[TODOS]'
+                    st.caption("(Columna 'Órgano' no detectada en este archivo)")
+            
+            # Filtro desglosado 2: Tipo de PPTO
+            if col_tpptto:
+                valores_tpptto = ['[TODOS]'] + sorted(df_actual[col_tpptto].dropna().astype(str).unique().tolist())
+                with f_col2:
+                    sel_tpptto = st.selectbox("Seleccionar Tipo de PPTO:", options=valores_tpptto)
+            else:
+                with f_col2:
+                    sel_tpptto = '[TODOS]'
+                    st.caption("(Columna 'Tipo de PPTO' no detectada en este archivo)")
+
+            busqueda_seg = st.text_input("🔍 Búsqueda general por texto (producto, descripción, detalle):")
+            
+            # Aplicar filtros
             df_filtrado = df_actual.copy()
+            
+            if col_organo and sel_organo != '[TODOS]':
+                df_filtrado = df_filtrado[df_filtrado[col_organo].astype(str) == sel_organo]
+                
+            if col_tpptto and sel_tpptto != '[TODOS]':
+                df_filtrado = df_filtrado[df_filtrado[col_tpptto].astype(str) == sel_tpptto]
+                
             if busqueda_seg:
                 mask = df_filtrado.astype(str).apply(lambda x: x.str.contains(busqueda_seg, case=False, na=False)).any(axis=1)
                 df_filtrado = df_filtrado[mask]
