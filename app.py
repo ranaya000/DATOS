@@ -67,17 +67,18 @@ def cargar_datos_sistema():
         except Exception:
             pass
 
-    # Intentar cargar desde los archivos locales actualizados (si existen)
+    # Cargar movimientos si existe
     try:
         df_movimientos_init = pd.read_excel('movimientos.xlsx')
     except Exception:
         pass
 
-    try:
-        df_stock = pd.read_excel('stock_actualizado.xlsx')
-    except Exception:
+    # Cargar stock priorizando el actualizado o el stock_2
+    for archivo_stock in ['stock_actualizado.xlsx', 'stock_2.xlsx']:
         try:
-            df_stock = pd.read_excel('stock_2.xlsx')
+            df_stock = pd.read_excel(archivo_stock)
+            if not df_stock.empty:
+                break
         except Exception:
             pass
 
@@ -85,28 +86,57 @@ def cargar_datos_sistema():
 
 dict_seguimiento_global, df_movimientos_init_global, df_stock_global = cargar_datos_sistema()
 
+# Función auxiliar para extraer valores buscando entre múltiples nombres posibles de columnas
+def obtener_columna_flexible(row, posibles_nombres, valor_por_defecto=""):
+    for col in posibles_nombres:
+        # Buscar coincidencia exacta o case-insensitive
+        for c in row.index:
+            if str(c).strip().lower() == col.lower():
+                val = row[c]
+                if pd.notna(val) and str(val).strip() != "":
+                    return val
+    return valor_por_defecto
+
 # Inicializar inventario y movimientos en sesión
 if 'inventario_bienes' not in st.session_state:
     inventario_temp = []
     if not df_stock_global.empty:
         for idx, r in df_stock_global.iterrows():
-            prod = str(r.get('Producto', '')).strip().upper()
-            cat = str(r.get('Categoría', 'GENERAL')).strip().upper()
-            prov = str(r.get('Proveedor', r.get('Proveedor / Marca', ''))).strip().upper()
-            stock_ini = float(r.get('Inventario Inicial', 0.0) or 0.0)
-            stock_act = float(r.get('Stock Actual', stock_ini) or stock_ini)
-            unid = str(r.get('Unidad Medida', 'UNIDAD')).strip().upper()
+            prod = str(obtener_columna_flexible(r, ['Producto', 'Descripción', 'Descripcion', 'Descripción del Producto', 'Bien', 'Item', 'Artículo'], '')).strip().upper()
+            cat = str(obtener_columna_flexible(r, ['Categoría', 'Categoria', 'Cat.'], 'GENERAL')).strip().upper()
+            prov = str(obtener_columna_flexible(r, ['Proveedor', 'Proveedor / Marca', 'Marca'], '')).strip().upper()
             
-            item = {
-                "id_fila": idx + 1,
-                "categoria": cat,
-                "producto": prod,
-                "proveedor": prov,
-                "unidad": unid,
-                "stock_inicial": stock_ini,
-                "stock_actual": stock_act
-            }
-            inventario_temp.append(item)
+            # Si el producto está vacío, intentar buscar en cualquier columna de tipo texto largo
+            if not prod or prod == 'NAN':
+                for c in r.index:
+                    val_str = str(r[c]).strip()
+                    if len(val_str) > 3 and c not in ['Categoría', 'Categoria', 'Proveedor', 'Unidad Medida']:
+                        prod = val_str.upper()
+                        break
+
+            try:
+                stock_ini = float(obtener_columna_flexible(r, ['Inventario Inicial', 'Inventario_Inicial', 'Stock Inicial', 'Stock_Incial'], 0.0) or 0.0)
+            except:
+                stock_ini = 0.0
+                
+            try:
+                stock_act = float(obtener_columna_flexible(r, ['Stock Actual', 'Stock_Actual', 'Stock'], stock_ini) or stock_ini)
+            except:
+                stock_act = stock_ini
+
+            unid = str(obtener_columna_flexible(r, ['Unidad Medida', 'Unidad de Medida', 'Unidad', 'UM'], 'UNIDAD')).strip().upper()
+            
+            if prod and prod != 'NAN':
+                item = {
+                    "id_fila": idx + 1,
+                    "categoria": cat,
+                    "producto": prod,
+                    "proveedor": prov,
+                    "unidad": unid,
+                    "stock_inicial": stock_ini,
+                    "stock_actual": stock_act
+                }
+                inventario_temp.append(item)
     st.session_state.inventario_bienes = inventario_temp
 
 if 'historial_movimientos' not in st.session_state:
@@ -138,7 +168,6 @@ col_sup1, col_sup2 = st.columns([1, 1])
 with col_sup1:
     if st.button("💾 GUARDAR TODOS LOS CAMBIOS GENERALES"):
         try:
-            # Guardar Stock Actualizado en 'stock_actualizado.xlsx'
             df_stock_save = pd.DataFrame([{
                 "Categoría": i['categoria'],
                 "Producto": i['producto'],
@@ -149,7 +178,6 @@ with col_sup1:
             } for i in st.session_state.inventario_bienes])
             df_stock_save.to_excel('stock_actualizado.xlsx', index=False)
             
-            # Guardar Movimientos en 'movimientos.xlsx'
             if st.session_state.historial_movimientos:
                 df_movs_save = pd.DataFrame(st.session_state.historial_movimientos)
                 df_movs_save.to_excel('movimientos.xlsx', index=False)
@@ -447,10 +475,11 @@ with tab4:
             if col_tpptto and sel_tpptto != '[TODOS]':
                 df_filtrado = df_filtrado[df_filtrado[col_tpptto].astype(str) == sel_tpptto]
             if busqueda_seg:
-                mask = df_filtrado.astype(str).apply(lambda x: x.str.contains(busqueda_seg, case=False, na=False)).any(axis=1)
+                mask = df_filtrado.astype(str).apply(lambda x: x.str.contains(busgya_seg:=busqueda_seg, case=False, na=False)).any(axis=1)
                 df_filtrado = df_filtrado[mask]
                 
-            st.write(df_filtrado)
+            st.write(f"Registros encontrados: {len(df_filtrado)}")
+            st.dataframe(df_filtrado, use_container_width=True)
         else:
             st.warning("El archivo seleccionado está vacío.")
     else:
