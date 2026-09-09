@@ -27,12 +27,13 @@ if not st.session_state.autenticado:
     st.stop()
 
 # ==============================================================================
-# LÓGICA DE NEGOCIO Y CARGA DE DATOS
+# LÓGICA DE NEGOCIO Y CARGA DE DATOS DESDE EXCEL
 # ==============================================================================
 @st.cache_data
 def cargar_datos_sistema():
     df_pecosas = pd.DataFrame()
     df_movimientos = pd.DataFrame()
+    df_stock = pd.DataFrame()
     
     try:
         df_pecosas = pd.read_excel('ORDENES DE COMPRA.xlsx', header=2)
@@ -50,87 +51,58 @@ def cargar_datos_sistema():
     except Exception:
         pass
 
-    return df_pecosas, df_movimientos
+    try:
+        df_stock = pd.read_excel('stock_2.xlsx')
+    except Exception:
+        pass
 
-df_pecosas_global, df_movimientos_global = cargar_datos_sistema()
+    return df_pecosas, df_movimientos, df_stock
 
-def extraer_factor(unidad_str):
-    unidad_str = str(unidad_str).upper()
-    if "UNIDAD" in unidad_str and not any(char.isdigit() for char in unidad_str):
-        return 1
-    match = re.search(r'(\d+)', unidad_str)
-    if match:
-        return int(match.group(1))
-    return 1
+df_pecosas_global, df_movimientos_global, df_stock_global = cargar_datos_sistema()
 
-def determinar_categoria(texto):
-    texto = str(texto).upper()
-    if any(k in texto for k in ['CABLE', 'USB', 'IMPRESORA', 'DISCO', 'KVM', 'PANTALLA', 'LAPTOP', 'COMPUT', 'RED', 'ROUTER', 'TECLADO', 'MOUSE', 'MONITOR', 'TONER', 'TINTA', 'RESINA']):
-        return 'CÓMPUTO Y TECNOLOGÍA'
-    elif any(k in texto for k in ['CLIP', 'PLUMON', 'BOLIGRAFO', 'LAPICERO', 'CUADERNO', 'PAPEL', 'FOLDER', 'SOBRE', 'TICKETERA', 'ETIQUETA', 'GOMA', 'CINTA ADHESIVA', 'SELLO']):
-        return 'ÚTILES Y OFICINA'
-    elif any(k in texto for k in ['CINTA', 'METAL', 'TALADRO', 'MARTILLO', 'LLAVE', 'DESTORNILLADOR', 'CABLE ELECTRICO', 'FOCO', 'INTERRUPTOR', 'TUBERIA', 'VALVULA']):
-        return 'FERRETERÍA Y MANTENIMIENTO'
-    elif any(k in texto for k in ['ESCOBA', 'LEJIA', 'DETERGENTE', 'PAPEL HIGIENICO', 'DISPENSER', 'ALCOHOL', 'TOALLA']):
-        return 'LIMPIEZA E HIGIENE'
-    else:
-        return 'GENERAL / OTROS'
-
-# Inicializar inventario en sesión
+# Inicializar inventario en sesión basado estrictamente en 'stock_2.xlsx'
 if 'inventario_bienes' not in st.session_state:
-    productos_unicos = set()
-    if not df_movimientos_global.empty:
-        for _, r in df_movimientos_global.iterrows():
-            productos_unicos.add((str(r['Descripción del Producto']).strip().upper(), str(r['Proveedor']).strip().upper(), str(r['Unidad Medida']).strip().upper(), float(r['Costo unitario'])))
-    
-    if not df_pecosas_global.empty:
-        for _, r in df_pecosas_global.iterrows():
-            desc = str(r.get('DESCRIPCION', '')).strip().upper()
-            if desc and desc != 'NAN':
-                marca = str(r.get('MARCA', 'GENERICO')).strip().upper()
-                unid = str(r.get('UNIDAD DE MEDIDA', 'UNIDAD')).strip().upper()
-                precio = float(r.get('PRECIO UNITARIO', 0.0) or 0.0)
-                productos_unicos.add((desc, marca, unid, precio))
-
     inventario_temp = []
-    idx = 1
-    for prod, prov, unid, costo in sorted(productos_unicos):
-        factor = extraer_factor(unid)
-        categoria = determinar_categoria(prod)
-        item = {
-            "id_fila": idx,
-            "codigo": f"PROD-{idx:03d}",
-            "categoria": categoria,
-            "producto": prod,
-            "proveedor": prov,
-            "costo": costo,
-            "unidad": unid,
-            "factor": factor,
-            "stock": 1000.0,
-            "movimientos": [{
-                "tipo": "INVENTARIO INICIAL",
-                "cantidad": 1000.0,
-                "saldo": 1000.0,
-                "detalle": "Carga inicial automática"
-            }]
-        }
-        inventario_temp.append(item)
-        idx += 1
-        
-    if not df_movimientos_global.empty:
-        for _, m in df_movimientos_global.iterrows():
-            p_nombre = str(m['Descripción del Producto']).strip().upper()
-            cant_salida = float(m['Cantidad'])
-            for item in inventario_temp:
-                if item['producto'] == p_nombre:
-                    item['stock'] -= cant_salida
-                    item['movimientos'].append({
-                        "tipo": "SALIDA",
-                        "cantidad": cant_salida,
-                        "saldo": item['stock'],
-                        "detalle": f"Guía/Personal: {m['Guía de remisión']} | O/C: {m['Orden de compra']}"
-                    })
-                    break
+    if not df_stock_global.empty:
+        for idx, r in df_stock_global.iterrows():
+            prod = str(r.get('Producto', '')).strip().upper()
+            cat = str(r.get('Categoría', 'GENERAL')).strip().upper()
+            prov = str(r.get('Proveedor', '')).strip().upper()
+            stock_ini = float(r.get('Inventario Inicial', 0.0) or 0.0)
+            unid = str(r.get('Unidad Medida', 'UNIDAD')).strip().upper()
+            
+            item = {
+                "id_fila": idx + 1,
+                "categoria": cat,
+                "producto": prod,
+                "proveedor": prov,
+                "unidad": unid,
+                "stock": stock_ini,
+                "movimientos": [{
+                    "tipo": "INVENTARIO INICIAL",
+                    "cantidad": stock_ini,
+                    "saldo": stock_ini,
+                    "detalle": "Carga inicial desde stock_2.xlsx"
+                }]
+            }
+            inventario_temp.append(item)
+            
+        # Descontar salidas si existen en movimientos
+        if not df_movimientos_global.empty:
+            for _, m in df_movimientos_global.iterrows():
+                p_nombre = str(m['Descripción del Producto']).strip().upper()
+                cant_salida = float(m['Cantidad'] or 0)
+                for item in inventario_temp:
+                    if item['producto'] == p_nombre:
+                        item['stock'] -= cant_salida
+                        item['movimientos'].append({
+                            "tipo": "SALIDA",
+                            "cantidad": cant_salida,
+                            "saldo": item['stock'],
+                            "detalle": f"Guía/Personal: {m['Guía de remisión']} | O/C: {m['Orden de compra']}"
+                        })
+                        break
+                        
     st.session_state.inventario_bienes = inventario_temp
 
 # ==============================================================================
@@ -156,12 +128,15 @@ with tab1:
     if "ENTREGA" in tipo_pedido:
         with col1: portador = st.text_input("Portador", placeholder="Ej. Juan Pérez")
         with col2: area = st.text_input("Área", placeholder="Ej. Subgerencia")
-    else:
+    elif "INGRESO" in tipo_pedido:
         with col1: pecosa_val = st.text_input("Nro PECOSA")
         with col2: orden_compra_val = st.text_input("Nro O/C")
+    else:
+        with col1: motivo_baja = st.text_input("Motivo de Baja", placeholder="Ej. Deterioro, rotura, merma")
+        with col2: st.empty()
 
     buscar_prod = st.text_input("Filtrar producto para registrar:")
-    opciones_prod = {f"[{i['codigo']}] {i['producto']} (Stock: {i['stock']})": i['codigo'] for i in st.session_state.inventario_bienes if not buscar_prod or buscar_prod.lower() in i['producto'].lower()}
+    opciones_prod = {f"{i['producto']} (Stock: {i['stock']})": i['producto'] for i in st.session_state.inventario_bienes if not buscar_prod or buscar_prod.lower() in i['producto'].lower()}
     
     prod_seleccionado_label = st.selectbox("Producto:", options=list(opciones_prod.keys()) if opciones_prod else ["No encontrado"])
     cantidad_op = st.number_input("Cantidad:", min_value=1, value=1)
@@ -173,21 +148,21 @@ with tab1:
     with c_btn1:
         if st.button("➕ Agregar al Carrito"):
             if prod_seleccionado_label and prod_seleccionado_label != "No encontrado":
-                cod = opciones_prod[prod_seleccionado_label]
-                prod_obj = next((i for i in st.session_state.inventario_bienes if i['codigo'] == cod), None)
+                nombre_prod = opciones_prod[prod_seleccionado_label]
+                prod_obj = next((i for i in st.session_state.inventario_bienes if i['producto'] == nombre_prod), None)
                 if prod_obj:
-                    st.session_state.carrito_items.append({"codigo": cod, "nombre": prod_obj['producto'], "cant": cantidad_op})
+                    st.session_state.carrito_items.append({"nombre": prod_obj['producto'], "cant": cantidad_op})
                     st.success(f"Agregado: {prod_obj['producto']}")
 
     st.markdown("**Resumen del Carrito:**")
     if st.session_state.carrito_items:
         for idx_c, itm in enumerate(st.session_state.carrito_items):
-            st.text(f"• [{itm['codigo']}] {itm['nombre']} x {itm['cant']}")
+            st.text(f"• {itm['nombre']} x {itm['cant']}")
         
         if st.button("💾 Procesar Transacción"):
             for itm in st.session_state.carrito_items:
                 for prod in st.session_state.inventario_bienes:
-                    if prod['codigo'] == itm['codigo']:
+                    if prod['producto'] == itm['nombre']:
                         if "INGRESO" in tipo_pedido:
                             prod['stock'] += itm['cant']
                         else:
@@ -209,24 +184,22 @@ with tab2:
     st.subheader("Stock Actual y Guardado en Excel")
     if st.button("💾 Guardar Stock Actualizado a Excel"):
         data_export = [{
-            "CODIGO": i['codigo'],
-            "CATEGORIA": i['categoria'],
-            "PRODUCTO": i['producto'],
-            "PROVEEDOR": i['proveedor'],
-            "COSTO": i['costo'],
-            "UNIDAD": i['unidad'],
-            "STOCK_ACTUAL": i['stock']
+            "Categoría": i['categoria'],
+            "Producto": i['producto'],
+            "Proveedor": i['proveedor'],
+            "Inventario Inicial": i['stock'],
+            "Unidad Medida": i['unidad']
         } for i in st.session_state.inventario_bienes]
         df_export = pd.DataFrame(data_export)
         df_export.to_excel('stock_actualizado.xlsx', index=False)
         st.success("¡Archivo 'stock_actualizado.xlsx' guardado exitosamente!")
 
     df_stock_view = pd.DataFrame([{
-        "CÓDIGO": i['codigo'],
-        "CATEGORÍA": i['categoria'],
-        "PRODUCTO": i['producto'],
-        "PROVEEDOR": i['proveedor'],
-        "STOCK": i['stock']
+        "Categoría": i['categoria'],
+        "Producto": i['producto'],
+        "Proveedor": i['proveedor'],
+        "Inventario Inicial": i['stock'],
+        "Unidad Medida": i['unidad']
     } for i in st.session_state.inventario_bienes])
     st.dataframe(df_stock_view, use_container_width=True)
 
@@ -290,12 +263,12 @@ with tab5:
         m_cat = k_cat == '[TODOS]' or i['categoria'] == k_cat
         m_prov = k_prov == '[TODOS]' or i['proveedor'] == k_prov
         if m_txt and m_cat and m_prov:
-            opts_k.append((f"[{i['codigo']}] {i['producto']}", i['codigo']))
+            opts_k.append((i['producto'], i['producto']))
             
     prod_k_sel = st.selectbox("Seleccione Producto para ver Kardex:", options=[o[1] for o in opts_k], format_func=lambda x: next((o[0] for o in opts_k if o[1] == x), ""))
     
     if prod_k_sel:
-        prod_data = next((i for i in st.session_state.inventario_bienes if i['codigo'] == prod_k_sel), None)
+        prod_data = next((i for i in st.session_state.inventario_bienes if i['producto'] == prod_k_sel), None)
         if prod_data:
             st.markdown(f"**Producto:** {prod_data['producto']}")
             st.markdown(f"**Categoría:** {prod_data['categoria']} | **Proveedor:** {prod_data['proveedor']} | **Stock Actual:** {prod_data['stock']}")
