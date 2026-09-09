@@ -64,6 +64,8 @@ def cargar_datos_sistema():
             df_temp = pd.read_excel(filename, sheet_name=sheet_to_load, header=header_row)
             # Limpiar nombres de columnas nulos o vacíos
             df_temp = df_temp.loc[:, ~df_temp.columns.astype(str).str.contains('^Unnamed')]
+            # Agregar columna de procedencia para identificar de qué archivo vino al juntarlos
+            df_temp['ARCHIVO_ORIGEN'] = nombre_key
             dict_seguimiento[nombre_key] = df_temp
         except Exception as e:
             pass
@@ -251,11 +253,19 @@ with tab3:
 # --- PESTAÑA 4: CONSULTA AVANZADA POR ARCHIVOS DE SEGUIMIENTO Y GERENCIAS ---
 with tab4:
     st.subheader("Consulta por Gerencia / Subgerencia y Requerimientos")
-    st.markdown("Seleccione el archivo de seguimiento y filtre por Órgano, Tipo de PPTO, o búsqueda general.")
+    st.markdown("Seleccione el archivo de seguimiento (o [TODOS]) y filtre por Órgano, Tipo de PPTO, o búsqueda general.")
     
     if dict_seguimiento_global:
-        archivo_sel = st.selectbox("Seleccionar Archivo / Proceso:", options=list(dict_seguimiento_global.keys()))
-        df_actual = dict_seguimiento_global[archivo_sel]
+        # Agregar '[TODOS]' a las opciones de archivos disponibles
+        opciones_archivos = ['[TODOS]'] + list(dict_seguimiento_global.keys())
+        archivo_sel = st.selectbox("Seleccionar Archivo / Proceso:", options=opciones_archivos)
+        
+        # Consolidar o seleccionar el DataFrame según la opción elegida
+        if archivo_sel == '[TODOS]':
+            # Unir todos los DataFrames de seguimiento en uno solo
+            df_actual = pd.concat(list(dict_seguimiento_global.values()), ignore_index=True, sort=False)
+        else:
+            df_actual = dict_seguimiento_global[archivo_sel]
         
         if not df_actual.empty:
             # Buscar dinámicamente las columnas que coincidan con 'Órgano' y 'Tipo de PPTO' (o similares)
@@ -273,7 +283,7 @@ with tab4:
             else:
                 with f_col1:
                     sel_organo = '[TODOS]'
-                    st.caption("(Columna 'Órgano' no detectada en este archivo)")
+                    st.caption("(Columna 'Órgano' no detectada)")
             
             # Filtro desglosado 2: Tipo de PPTO
             if col_tpptto:
@@ -283,7 +293,7 @@ with tab4:
             else:
                 with f_col2:
                     sel_tpptto = '[TODOS]'
-                    st.caption("(Columna 'Tipo de PPTO' no detectada en este archivo)")
+                    st.caption("(Columna 'Tipo de PPTO' no detectada)")
 
             busqueda_seg = st.text_input("🔍 Búsqueda general por texto (producto, descripción, detalle):")
             
@@ -308,13 +318,13 @@ with tab4:
             st.download_button(
                 label="📥 Descargar este resultado en CSV",
                 data=csv_data,
-                file_name=f"reporte_{archivo_sel.lower().replace(' ', '_')}.csv",
+                file_name=f"reporte_{archivo_sel.lower().replace(' ', '_').replace('[', '').replace(']', '')}.csv",
                 mime="text/csv"
             )
         else:
             st.warning("El archivo seleccionado está vacío.")
     else:
-        st.warning("No se encontraron los nuevos archivos de seguimiento en el directorio.")
+        st.warning("No se encontraron los archivos de seguimiento en el directorio.")
 
 # --- PESTAÑA 5: KARDEX FRACCIONADO ---
 with tab5:
