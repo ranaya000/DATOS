@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import io
+from datetime import datetime
 
 # Configuración inicial de la página
 st.set_page_config(page_title="Sistema de Almacén - ONPE", page_icon="📦", layout="wide")
@@ -87,9 +88,10 @@ if 'inventario_bienes' not in st.session_state:
         for idx, r in df_stock_global.iterrows():
             prod = str(r.get('Producto', '')).strip().upper()
             cat = str(r.get('Categoría', 'GENERAL')).strip().upper()
-            prov = str(r.get('Proveedor', '')).strip().upper()
+            prov = str(r.get('Proveedor', r.get('Proveedor / Marca', ''))).strip().upper()
             stock_ini = float(r.get('Inventario Inicial', 0.0) or 0.0)
             unid = str(r.get('Unidad Medida', 'UNIDAD')).strip().upper()
+            costo_u = float(r.get('Costo unitario', r.get('Costo Unitario', 0.0)) or 0.0)
             
             item = {
                 "id_fila": idx + 1,
@@ -97,6 +99,7 @@ if 'inventario_bienes' not in st.session_state:
                 "producto": prod,
                 "proveedor": prov,
                 "unidad": unid,
+                "costo_unitario": costo_u,
                 "stock_inicial": stock_ini,
                 "stock_actual": stock_ini
             }
@@ -107,7 +110,15 @@ if 'historial_movimientos' not in st.session_state:
     movs_iniciales = []
     if not df_movimientos_init_global.empty:
         for _, row in df_movimientos_init_global.iterrows():
-            movs_iniciales.append(row.to_dict())
+            d_dict = row.to_dict()
+            if 'Tipo' in d_dict and 'Tipo de registro' not in d_dict:
+                d_dict['Tipo de registro'] = d_dict['Tipo']
+            # Remover detalle si viene de excel viejo
+            if 'Detalle / Referencia' in d_dict:
+                del d_dict['Detalle / Referencia']
+            if 'Detalle / Observación' in d_dict:
+                del d_dict['Detalle / Observación']
+            movs_iniciales.append(d_dict)
     st.session_state.historial_movimientos = movs_iniciales
 
 if 'carrito_operaciones' not in st.session_state:
@@ -130,8 +141,9 @@ with col_sup2:
         df_stock_exp = pd.DataFrame([{
             "Categoría": i['categoria'],
             "Producto": i['producto'],
-            "Proveedor / Marca": i['proveedor'],
+            "Proveedor": i['proveedor'],
             "Unidad Medida": i['unidad'],
+            "Costo unitario": i['costo_unitario'],
             "Inventario Inicial": i['stock_inicial'],
             "Stock Actual": i['stock_actual']
         } for i in st.session_state.inventario_bienes])
@@ -167,16 +179,20 @@ with tab1:
     st.subheader("Registro de Operaciones (Entrada, Salida o Baja)")
     tipo_operacion = st.selectbox("Tipo de Operación:", ['SALIDA (ENTREGA A ÁREA)', 'INGRESO (COMPRA/ADQUISICIÓN)', 'BAJA (MERMA/DETERIORO)'])
     
-    referencia_origen = ""
+    personal_solicitante = ""
+    fecha_operacion = datetime.now().date()
+    nro_pecosa = ""
+    orden_compra = ""
+    nro_pedido = ""
+    motivo_baja = ""
     
     if "SALIDA" in tipo_operacion:
         col_op1, col_op2 = st.columns(2)
         with col_op1:
             personal_solicitante = st.text_input("Personal Solicitante", placeholder="Ej. Juan Pérez")
         with col_op2:
-            fecha_salida = st.date_input("Fecha de salida")
-        referencia_origen = f"Personal: {personal_solicitante} | Fecha: {fecha_salida}"
-        
+            fecha_operacion = st.date_input("Fecha de salida", value=datetime.now().date())
+            
     elif "INGRESO" in tipo_operacion:
         col_op1, col_op2 = st.columns(2)
         with col_op1:
@@ -184,12 +200,14 @@ with tab1:
             orden_compra = st.text_input("Orden de Compra", placeholder="Ej. O/C 456")
         with col_op2:
             nro_pedido = st.text_input("Nro de pedido", placeholder="Ej. Pedido 789")
-            fecha_ingreso = st.date_input("Fecha de ingreso")
-        referencia_origen = f"PECOSA: {nro_pecosa} | O/C: {orden_compra} | Pedido: {nro_pedido} | Fecha: {fecha_ingreso}"
-        
+            fecha_operacion = st.date_input("Fecha de ingreso", value=datetime.now().date())
+            
     else:  # BAJA
-        motivo_baja = st.text_input("Motivo de la Baja", placeholder="Ej. Deterioro o rotura de almacén")
-        referencia_origen = f"Motivo: {motivo_baja}"
+        col_op1, col_op2 = st.columns(2)
+        with col_op1:
+            motivo_baja = st.text_input("Motivo de la Baja", placeholder="Ej. Deterioro o rotura de almacén")
+        with col_op2:
+            fecha_operacion = st.date_input("Fecha de baja", value=datetime.now().date())
 
     buscar_prod_reg = st.text_input("Buscar palabra clave:")
     opciones_prod = {f"{i['producto']} (Stock Actual: {i['stock_actual']})": i['producto'] for i in st.session_state.inventario_bienes if not buscar_prod_reg or buscar_prod_reg.lower() in i['producto'].lower()}
@@ -208,10 +226,15 @@ with tab1:
                         st.error(f"¡Stock insuficiente! Stock actual de '{nombre_p}' es {prod_obj['stock_actual']}.")
                     else:
                         st.session_state.carrito_operaciones.append({
+                            "tipo_operacion": tipo_operacion,
                             "producto": nombre_p,
                             "cantidad": cantidad_op,
-                            "tipo": tipo_operacion,
-                            "ref": referencia_origen
+                            "personal_solicitante": personal_solicitante,
+                            "fecha_operacion": str(fecha_operacion),
+                            "nro_pecosa": nro_pecosa,
+                            "orden_compra": orden_compra,
+                            "nro_pedido": nro_pedido,
+                            "motivo_baja": motivo_baja
                         })
                         st.success(f"Añadido a operaciones: {nombre_p} ({cantidad_op})")
 
@@ -220,31 +243,43 @@ with tab1:
         for idx_it, itm in enumerate(st.session_state.carrito_operaciones):
             cols_car = st.columns([6, 1])
             with cols_car[0]:
-                st.text(f"• [{itm['tipo']}] {itm['producto']} - Cantidad: {itm['cantidad']} | {itm['ref']}")
+                st.text(f"• [{itm['tipo_operacion']}] {itm['producto']} - Cantidad: {itm['cantidad']} | Fecha Op: {itm['fecha_operacion']}")
             with cols_car[1]:
                 if st.button("❌", key=f"del_carrito_{idx_it}"):
                     st.session_state.carrito_operaciones.pop(idx_it)
                     st.rerun()
         
         if st.button("💾 Confirmar y Aplicar Operaciones del Carrito"):
+            fecha_registro_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             for itm in st.session_state.carrito_operaciones:
                 for prod in st.session_state.inventario_bienes:
                     if prod['producto'] == itm['producto']:
-                        if "INGRESO" in itm['tipo']:
+                        costo_u = float(prod.get('costo_unitario', 0.0) or 0.0)
+                        subtotal_val = costo_u * itm['cantidad']
+                        
+                        if "INGRESO" in itm['tipo_operacion']:
                             prod['stock_actual'] += itm['cantidad']
-                            t_mov = "INGRESO"
-                        elif "SALIDA" in itm['tipo']:
+                            t_reg = "Ingreso"
+                        elif "SALIDA" in itm['tipo_operacion']:
                             prod['stock_actual'] -= itm['cantidad']
-                            t_mov = "SALIDA"
+                            t_reg = "Salida"
                         else:
                             prod['stock_actual'] -= itm['cantidad']
-                            t_mov = "BAJA"
+                            t_reg = "Baja"
                         
                         nuevo_movimiento = {
-                            "Tipo": t_mov,
+                            "Fecha registro": fecha_registro_actual,
+                            "Fecha operación": itm['fecha_operacion'],
+                            "Personal solicitante": itm['personal_solicitante'],
+                            "Orden de compra": itm['orden_compra'],
+                            "Categoría": prod['categoria'],
                             "Descripción del Producto": prod['producto'],
+                            "Proveedor": prod['proveedor'],
+                            "Unidad Medida": prod['unidad'],
                             "Cantidad": itm['cantidad'],
-                            "Detalle / Referencia": itm['ref']
+                            "Costo unitario": costo_u,
+                            "Subtotal": subtotal_val,
+                            "Tipo de registro": t_reg
                         }
                         st.session_state.historial_movimientos.append(nuevo_movimiento)
                         break
@@ -280,8 +315,9 @@ with tab2:
             data_stock_list.append({
                 "Categoría": i['categoria'],
                 "Producto": i['producto'],
-                "Proveedor / Marca": i['proveedor'],
+                "Proveedor": i['proveedor'],
                 "Unidad Medida": i['unidad'],
+                "Costo unitario": i['costo_unitario'],
                 "Inventario Inicial": i['stock_inicial'],
                 "Stock Actual": i['stock_actual']
             })
@@ -295,8 +331,31 @@ with tab3:
     st.markdown("Marca en la columna **'Borrar'** de la tabla los registros erróneos y haz clic en el botón inferior para eliminarlos.")
     
     if st.session_state.historial_movimientos:
-        df_movs_total = pd.DataFrame(st.session_state.historial_movimientos)
-        df_movs_total.insert(0, "Borrar", False)
+        lista_movs_limpia = []
+        for m in st.session_state.historial_movimientos:
+            m_copy = m.copy()
+            if 'Tipo' in m_copy and 'Tipo de registro' not in m_copy:
+                d_val = m_copy.pop('Tipo')
+                m_copy['Tipo de registro'] = d_val
+            elif 'Tipo' in m_copy:
+                del m_copy['Tipo']
+            
+            # Eliminar columnas de detalles/observaciones si existen
+            if 'Detalle / Referencia' in m_copy:
+                del m_copy['Detalle / Referencia']
+            if 'Detalle / Observación' in m_copy:
+                del m_copy['Detalle / Observación']
+            
+            # Asegurar proveedor desde inventario si falta
+            if not m_copy.get('Proveedor') or str(m_copy.get('Proveedor')) == 'nan' or str(m_copy.get('Proveedor')) == 'None':
+                p_encontrado = next((i['proveedor'] for i in st.session_state.inventario_bienes if i['producto'] == m_copy.get('Descripción del Producto')), "")
+                m_copy['Proveedor'] = p_encontrado
+                
+            lista_movs_limpia.append(m_copy)
+            
+        df_movs_total = pd.DataFrame(lista_movs_limpia)
+        if "Borrar" not in df_movs_total.columns:
+            df_movs_total.insert(0, "Borrar", False)
         
         df_editado = st.data_editor(
             df_movs_total,
@@ -313,13 +372,13 @@ with tab3:
                     mov_item = st.session_state.historial_movimientos[idx]
                     prod_afectado = mov_item.get('Descripción del Producto')
                     cant_afectada = float(mov_item.get('Cantidad', 0))
-                    tipo_afectado = mov_item.get('Tipo')
+                    tipo_afectado = mov_item.get('Tipo de registro', mov_item.get('Tipo', ''))
                     
                     for prod in st.session_state.inventario_bienes:
                         if prod['producto'] == prod_afectado:
-                            if tipo_afectado == "INGRESO":
+                            if str(tipo_afectado).lower() in ["ingreso", "entrada"]:
                                 prod['stock_actual'] -= cant_afectada
-                            elif tipo_afectado in ["SALIDA", "BAJA"]:
+                            elif str(tipo_afectado).lower() in ["salida", "baja"]:
                                 prod['stock_actual'] += cant_afectada
                             break
                     
