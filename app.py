@@ -91,7 +91,6 @@ if 'inventario_bienes' not in st.session_state:
             prov = str(r.get('Proveedor', r.get('Proveedor / Marca', ''))).strip().upper()
             stock_ini = float(r.get('Inventario Inicial', 0.0) or 0.0)
             unid = str(r.get('Unidad Medida', 'UNIDAD')).strip().upper()
-            costo_u = float(r.get('Costo unitario', r.get('Costo Unitario', 0.0)) or 0.0)
             
             item = {
                 "id_fila": idx + 1,
@@ -99,7 +98,6 @@ if 'inventario_bienes' not in st.session_state:
                 "producto": prod,
                 "proveedor": prov,
                 "unidad": unid,
-                "costo_unitario": costo_u,
                 "stock_inicial": stock_ini,
                 "stock_actual": stock_ini
             }
@@ -111,13 +109,15 @@ if 'historial_movimientos' not in st.session_state:
     if not df_movimientos_init_global.empty:
         for _, row in df_movimientos_init_global.iterrows():
             d_dict = row.to_dict()
+            # Mapeo y limpieza de columnas antiguas si es necesario
             if 'Tipo' in d_dict and 'Tipo de registro' not in d_dict:
                 d_dict['Tipo de registro'] = d_dict['Tipo']
-            # Remover detalle si viene de excel viejo
-            if 'Detalle / Referencia' in d_dict:
-                del d_dict['Detalle / Referencia']
-            if 'Detalle / Observación' in d_dict:
-                del d_dict['Detalle / Observación']
+            if 'Guía de remisión' in d_dict:
+                d_dict['Personal solicitante'] = d_dict.pop('Guía de remisión')
+            # Eliminar columnas no deseadas
+            for col_elim in ['Costo unitario', 'Subtotal', 'Detalle / Referencia', 'Detalle / Observación', 'Tipo']:
+                if col_elim in d_dict:
+                    del d_dict[col_elim]
             movs_iniciales.append(d_dict)
     st.session_state.historial_movimientos = movs_iniciales
 
@@ -143,7 +143,6 @@ with col_sup2:
             "Producto": i['producto'],
             "Proveedor": i['proveedor'],
             "Unidad Medida": i['unidad'],
-            "Costo unitario": i['costo_unitario'],
             "Inventario Inicial": i['stock_inicial'],
             "Stock Actual": i['stock_actual']
         } for i in st.session_state.inventario_bienes])
@@ -181,25 +180,20 @@ with tab1:
     
     personal_solicitante = ""
     fecha_operacion = datetime.now().date()
-    nro_pecosa = ""
     orden_compra = ""
-    nro_pedido = ""
-    motivo_baja = ""
     
     if "SALIDA" in tipo_operacion:
         col_op1, col_op2 = st.columns(2)
         with col_op1:
-            personal_solicitante = st.text_input("Personal Solicitante", placeholder="Ej. Juan Pérez")
+            personal_solicitante = st.text_input("Personal Solicitante", placeholder="Ej. Jorge Huamán")
         with col_op2:
             fecha_operacion = st.date_input("Fecha de salida", value=datetime.now().date())
             
     elif "INGRESO" in tipo_operacion:
         col_op1, col_op2 = st.columns(2)
         with col_op1:
-            nro_pecosa = st.text_input("Nro PECOSA", placeholder="Ej. PECOSA 123")
             orden_compra = st.text_input("Orden de Compra", placeholder="Ej. O/C 456")
         with col_op2:
-            nro_pedido = st.text_input("Nro de pedido", placeholder="Ej. Pedido 789")
             fecha_operacion = st.date_input("Fecha de ingreso", value=datetime.now().date())
             
     else:  # BAJA
@@ -229,12 +223,9 @@ with tab1:
                             "tipo_operacion": tipo_operacion,
                             "producto": nombre_p,
                             "cantidad": cantidad_op,
-                            "personal_solicitante": personal_solicitante,
-                            "fecha_operacion": str(fecha_operacion),
-                            "nro_pecosa": nro_pecosa,
-                            "orden_compra": orden_compra,
-                            "nro_pedido": nro_pedido,
-                            "motivo_baja": motivo_baja
+                            "personal_solicitante": personal_solicitante if "SALIDA" in tipo_operacion else "",
+                            "orden_compra": orden_compra if "INGRESO" in tipo_operacion else "",
+                            "fecha_operacion": str(fecha_operacion)
                         })
                         st.success(f"Añadido a operaciones: {nombre_p} ({cantidad_op})")
 
@@ -254,9 +245,6 @@ with tab1:
             for itm in st.session_state.carrito_operaciones:
                 for prod in st.session_state.inventario_bienes:
                     if prod['producto'] == itm['producto']:
-                        costo_u = float(prod.get('costo_unitario', 0.0) or 0.0)
-                        subtotal_val = costo_u * itm['cantidad']
-                        
                         if "INGRESO" in itm['tipo_operacion']:
                             prod['stock_actual'] += itm['cantidad']
                             t_reg = "Ingreso"
@@ -270,15 +258,13 @@ with tab1:
                         nuevo_movimiento = {
                             "Fecha registro": fecha_registro_actual,
                             "Fecha operación": itm['fecha_operacion'],
-                            "Personal solicitante": itm['personal_solicitante'],
-                            "Orden de compra": itm['orden_compra'],
+                            "Personal solicitante": itm['personal_solicitante'] if t_reg == "Salida" else "",
+                            "Orden de compra": itm['orden_compra'] if t_reg == "Ingreso" else "",
                             "Categoría": prod['categoria'],
                             "Descripción del Producto": prod['producto'],
                             "Proveedor": prod['proveedor'],
                             "Unidad Medida": prod['unidad'],
                             "Cantidad": itm['cantidad'],
-                            "Costo unitario": costo_u,
-                            "Subtotal": subtotal_val,
                             "Tipo de registro": t_reg
                         }
                         st.session_state.historial_movimientos.append(nuevo_movimiento)
@@ -317,7 +303,6 @@ with tab2:
                 "Producto": i['producto'],
                 "Proveedor": i['proveedor'],
                 "Unidad Medida": i['unidad'],
-                "Costo unitario": i['costo_unitario'],
                 "Inventario Inicial": i['stock_inicial'],
                 "Stock Actual": i['stock_actual']
             })
@@ -334,17 +319,21 @@ with tab3:
         lista_movs_limpia = []
         for m in st.session_state.historial_movimientos:
             m_copy = m.copy()
+            
+            # Normalizar columnas de tipo
             if 'Tipo' in m_copy and 'Tipo de registro' not in m_copy:
-                d_val = m_copy.pop('Tipo')
-                m_copy['Tipo de registro'] = d_val
+                m_copy['Tipo de registro'] = m_copy.pop('Tipo')
             elif 'Tipo' in m_copy:
                 del m_copy['Tipo']
-            
-            # Eliminar columnas de detalles/observaciones si existen
-            if 'Detalle / Referencia' in m_copy:
-                del m_copy['Detalle / Referencia']
-            if 'Detalle / Observación' in m_copy:
-                del m_copy['Detalle / Observación']
+                
+            # Renombrar Guía de remisión antigua si existiera
+            if 'Guía de remisión' in m_copy:
+                m_copy['Personal solicitante'] = m_copy.pop('Guía de remisión')
+                
+            # Eliminar columnas no requeridas definitivamente
+            for col_elim in ['Costo unitario', 'Subtotal', 'Detalle / Referencia', 'Detalle / Observación']:
+                if col_elim in m_copy:
+                    del m_copy[col_elim]
             
             # Asegurar proveedor desde inventario si falta
             if not m_copy.get('Proveedor') or str(m_copy.get('Proveedor')) == 'nan' or str(m_copy.get('Proveedor')) == 'None':
