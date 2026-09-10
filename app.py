@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
+import json
 
 st.set_page_config(page_title="Sistema de Almacén - ONPE", page_icon="📦", layout="wide")
 
@@ -13,8 +14,11 @@ def conectar_gsheets():
             "https://www.googleapis.com/auth/drive"
         ]
         
-        # Conexión directa mediante el archivo JSON subido a GitHub
-        creds = Credentials.from_service_account_file("credenciales.json", scopes=scope)
+        # Carga explícita del archivo JSON evitando errores de decodificación del sistema
+        with open("credenciales.json") as f:
+            creds_info = json.load(f)
+            
+        creds = Credentials.from_service_account_info(creds_info, scopes=scope)
         client = gspread.authorize(creds)
         
         spreadsheet = client.open("BD_Movimientos")
