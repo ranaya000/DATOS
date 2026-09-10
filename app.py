@@ -5,7 +5,7 @@ from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="Sistema de Almacén - ONPE", page_icon="📦", layout="wide")
 
-# --- CONEXIÓN DIRECTA A GOOGLE SHEETS ---
+# --- CONEXIÓN DIRECTA A GOOGLE SHEETS (ROBUSTA) ---
 @st.cache_resource
 def conectar_gsheets():
     try:
@@ -14,13 +14,14 @@ def conectar_gsheets():
             "https://www.googleapis.com/auth/drive"
         ]
         
-        # Cargamos los secretos como diccionario y formateamos la llave privada
+        # Copiamos los secretos y sanitizamos la llave privada para evitar errores de formato PEM
         creds_dict = dict(st.secrets["gcp_service_account"])
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
         
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
         
-        # Abrir el Google Sheet
         spreadsheet = client.open("BD_Movimientos")
         return spreadsheet
     except Exception as e:
@@ -61,15 +62,13 @@ if menu == "Registrar Movimiento":
         
         if st.button("Guardar Operación Automáticamente"):
             try:
-                # 1. Registrar en la pestaña Movimientos
                 nuevo_movimiento = [tipo, producto_sel, cantidad, str(pd.Timestamp.now())]
                 ws_movimientos.append_row(nuevo_movimiento)
                 
-                # 2. Actualizar el stock actual en la pestaña Stock
                 cell = ws_stock.find(producto_sel)
                 if cell:
                     fila = cell.row
-                    stock_actual_col = 6 # Columna F (Stock Actual)
+                    stock_actual_col = 6 
                     val_actual = ws_stock.cell(fila, stock_actual_col).value
                     stock_actual = int(val_actual) if val_actual and str(val_actual).isdigit() else 0
                     
