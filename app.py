@@ -37,27 +37,38 @@ if not st.session_state.autenticado:
     st.stop()
 
 # ==============================================================================
-# LÓGICA DE NEGOCIO Y CARGA DE DATOS DESDE GOOGLE SHEETS
+# LÓGICA DE NEGOCIO Y CARGA DE DATOS DESDE GOOGLE SHEETS (FLEXIBLE)
 # ==============================================================================
 @st.cache_data(ttl=0)
 def cargar_datos_sistema():
     df_movimientos_init = pd.DataFrame()
     df_stock = pd.DataFrame()
     
-    # Intentamos leer la pestaña Stock (buscando variaciones de nombre por seguridad)
-    for nombre_pestana in ["Stock", "stock", "STOCK"]:
+    try:
+        # Leemos la hoja de cálculo completa sin especificar pestaña para detectar las hojas reales
+        spreadsheet_data = conn.read(ttl=0)
+    except Exception:
+        spreadsheet_data = None
+
+    # Como la librería puede devolver un DataFrame o un diccionario de hojas según la versión,
+    # forzaremos la lectura directa probando nombres comunes de pestañas.
+    
+    # Intentos para Stock
+    for nombre in ["Stock", "stock", "STOCK", "Hoja 1", "hoja 1", "Sheet1"]:
         try:
-            df_stock = conn.read(worksheet=nombre_pestana, ttl=0)
-            if not df_stock.empty:
+            temp = conn.read(worksheet=nombre, ttl=0)
+            if temp is not None and not temp.empty:
+                df_stock = temp
                 break
         except Exception:
             pass
 
-    # Intentamos leer la pestaña Movimientos
-    for nombre_pestana in ["Movimientos", "movimientos", "MOVIMIENTOS"]:
+    # Intentos para Movimientos
+    for nombre in ["Movimientos", "movimientos", "MOVIMIENTOS", "Hoja 2", "hoja 2", "Sheet2"]:
         try:
-            df_movimientos_init = conn.read(worksheet=nombre_pestana, ttl=0)
-            if not df_movimientos_init.empty:
+            temp = conn.read(worksheet=nombre, ttl=0)
+            if temp is not None and not temp.empty:
+                df_movimientos_init = temp
                 break
         except Exception:
             pass
@@ -124,8 +135,9 @@ if 'historial_movimientos' not in st.session_state:
     movs_iniciales = []
     if not df_movimientos_init_global.empty:
         for _, row in df_movimientos_init_global.iterrows():
-            d_dict = row.to_dict()
-            movs_iniciales.append(d_dict)
+            d_dict = {str(k): v for k, v in row.to_dict().items() if pd.notna(v) and str(v).lower() != "nan"}
+            if d_dict:
+                movs_iniciales.append(d_dict)
     st.session_state.historial_movimientos = movs_iniciales
 
 if 'carrito_operaciones' not in st.session_state:
