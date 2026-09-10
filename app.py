@@ -13,11 +13,8 @@ def conectar_gsheets():
             "https://www.googleapis.com/auth/drive"
         ]
         
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        if "private_key" in creds_dict:
-            creds_dict["private_key"] = creds_dict["private_key"].encode().decode('unicode-escape')
-        
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        # Conexión directa mediante el archivo JSON subido a GitHub
+        creds = Credentials.from_service_account_file("credenciales.json", scopes=scope)
         client = gspread.authorize(creds)
         
         spreadsheet = client.open("BD_Movimientos")
