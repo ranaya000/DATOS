@@ -1,35 +1,40 @@
 import streamlit as st
 import pandas as pd
-import requests
-
-# Pega aquí la URL que te dio Google Apps Script
-WEB_APP_URL = "PEGA_AQUÍ_TU_URL_DE_APPS_SCRIPT"
+import gspread
+from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="Sistema de Almacén - ONPE", page_icon="📦", layout="wide")
 
-@st.cache_data(ttl=5)
-def cargar_datos():
+@st.cache_resource
+def conectar_gsheets():
     try:
-        response = requests.get(WEB_APP_URL)
-        data = response.json()
-        
-        # Procesar Stock
-        stock_rows = data["stock"]
-        df_stock = pd.DataFrame(stock_rows[1:], columns=stock_rows[0])
-        
-        # Procesar Movimientos
-        mov_rows = data["movimientos"]
-        if len(mov_rows) > 1:
-            df_mov = pd.DataFrame(mov_rows[1:], columns=mov_rows[0])
-        else:
-            df_mov = pd.DataFrame(columns=["Tipo", "Producto", "Cantidad", "Fecha"])
-            
-        return df_stock, df_mov
+        scope = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        # Conexión directa y limpia usando el archivo credenciales.json de tu repositorio
+        creds = Credentials.from_service_account_file("credenciales.json", scopes=scope)
+        client = gspread.authorize(creds)
+        spreadsheet = client.open("BD_Movimientos")
+        return spreadsheet
     except Exception as e:
-        st.error(f"Error al conectar con la API de Google Sheets: {e}")
-        return pd.DataFrame(), pd.DataFrame()
+        st.error(f"Error de conexión: {e}")
+        return None
 
-data_stock, data_movimientos = cargar_datos()
+spreadsheet = conectar_gsheets()
+
+if not spreadsheet:
+    st.stop()
+
+try:
+    ws_movimientos = spreadsheet.worksheet("Movimientos")
+    ws_stock = spreadsheet.worksheet("Stock")
+    
+    data_stock = pd.DataFrame(ws_stock.get_all_records())
+    data_movimientos = pd.DataFrame(ws_movimientos.get_all_records())
+except Exception as e:
+    st.error(f"Error al leer las hojas: {e}")
+    st.stop()
 
 st.title("📦 Sistema de Control de Almacén - ONPE")
 st.markdown("---")
@@ -47,22 +52,31 @@ if menu == "Registrar Movimiento":
         cantidad = st.number_input("Cantidad", min_value=1, value=1)
         
         if st.button("Guardar Operación Automáticamente"):
-            payload = {
-                "tipo": tipo,
-                "producto": producto_sel,
-                "cantidad": cantidad,
-                "fecha": str(pd.Timestamp.now())
-            }
             try:
-                res = requests.post(WEB_APP_URL, json=payload)
-                if res.status_code == 200:
-                    st.success("¡Operación guardada y sincronizada en Google Sheets! 🎉")
-                    st.cache_data.clear()
+                nuevo_movimiento = [tipo, producto_sel, cantidad, str(pd.Timestamp.now())]
+                ws_movimientos.append_row(nuevo_movimiento)
+                
+                cell = ws_stock.find(producto_sel)
+                if cell:
+                    fila = cell.row
+                    stock_actual_col = 6 
+                    val_actual = ws_stock.cell(fila, stock_actual_col).value
+                    stock_actual = int(val_actual) if val_actual and str(val_actual).isdigit() else 0
+                    
+                    if tipo == "Entrada":
+                        nuevo_stock = stock_actual + cantidad
+                    else:
+                        nuevo_stock = stock_actual - cantidad
+                        if nuevo_stock < 0:
+                            nuevo_stock = 0
+                            
+                    ws_stock.update_cell(fila, stock_actual_col, nuevo_stock)
+                    st.success("¡Operación guardada y sincronizada en tu Google Sheets! 🎉")
                     st.rerun()
                 else:
-                    st.error("Error al registrar en el servidor de Google.")
+                    st.error("No se encontró el producto en la hoja de stock.")
             except Exception as e:
-                st.error(f"Error de conexión: {e}")
+                st.error(f"Error al guardar: {e}")
     else:
         st.error("La tabla de stock está vacía.")
 
@@ -78,4 +92,4 @@ elif menu == "Historial de Movimientos":
     if not data_movimientos.empty:
         st.dataframe(data_movimientos, use_container_width=True)
     else:
-        st.info("Aún no hay movimientos registrados.")
+        st.info("Aún no hay movimientos.")
