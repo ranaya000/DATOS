@@ -5,7 +5,6 @@ from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="Sistema de Almacén - ONPE", page_icon="📦", layout="wide")
 
-# --- CONEXIÓN DIRECTA A GOOGLE SHEETS (ROBUSTA) ---
 @st.cache_resource
 def conectar_gsheets():
     try:
@@ -14,10 +13,9 @@ def conectar_gsheets():
             "https://www.googleapis.com/auth/drive"
         ]
         
-        # Copiamos los secretos y sanitizamos la llave privada para evitar errores de formato PEM
         creds_dict = dict(st.secrets["gcp_service_account"])
         if "private_key" in creds_dict:
-            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+            creds_dict["private_key"] = creds_dict["private_key"].encode().decode('unicode-escape')
         
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
@@ -33,7 +31,6 @@ spreadsheet = conectar_gsheets()
 if not spreadsheet:
     st.stop()
 
-# Cargar pestañas
 try:
     ws_movimientos = spreadsheet.worksheet("Movimientos")
     ws_stock = spreadsheet.worksheet("Stock")
@@ -44,7 +41,6 @@ except Exception as e:
     st.error(f"Error al leer las pestañas del Google Sheet: {e}")
     st.stop()
 
-# --- INTERFAZ DE USUARIO ---
 st.title("📦 Sistema de Control de Almacén - ONPE")
 st.markdown("---")
 
