@@ -1,12 +1,18 @@
 import streamlit as st
 import pandas as pd
 import io
+import unicodedata
 from datetime import datetime
 
 # ==============================================================================
 # CONFIGURACIÓN INICIAL
 # ==============================================================================
 st.set_page_config(page_title="Sistema de Almacén - ONPE", page_icon="📦", layout="wide")
+
+# ID de tu Google Sheet y URLs dinámicas para leer TODO el contenido actual
+SPREADSHEET_ID = "1F8e71glxH_3FaMUzdkUkIW_17qw_INT74249qwarpQ"
+URL_MOVIMIENTOS = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Movimientos"
+URL_STOCK = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=Stock"
 
 # ==============================================================================
 # SISTEMA DE AUTENTICACIÓN (LOGIN)
@@ -30,40 +36,97 @@ if not st.session_state.autenticado:
     st.stop()
 
 # ==============================================================================
-# INICIALIZACIÓN DE DATOS (ESTRUCTURA ROBUSTA)
+# CARGA TOTAL Y DINÁMICA DESDE GOOGLE SHEETS (SIN CACHÉ ESTÁTICA)
 # ==============================================================================
-if 'inventario_bienes' not in st.session_state:
-    # Datos iniciales estándar para que el sistema funcione de inmediato
-    st.session_state.inventario_bienes = [
-        {"id_fila": 1, "categoria": "OFICINA", "producto": "PAPEL BOND A4 80G", "proveedor": "FABER CASTELL", "unidad": "MILLAR", "stock_inicial": 50.0, "stock_actual": 50.0},
-        {"id_fila": 2, "categoria": "OFICINA", "producto": "LAPICERO TINTA SECA AZUL", "proveedor": "BIC", "unidad": "UNIDAD", "stock_inicial": 200.0, "stock_actual": 200.0},
-        {"id_fila": 3, "categoria": "LIMPIEZA", "producto": "LEJIA 1 LITRO", "proveedor": "CLOROX", "unidad": "FRASCO", "stock_inicial": 30.0, "stock_actual": 30.0},
-        {"id_fila": 4, "categoria": "TECNOLOGIA", "producto": "MAUSE USB OPTICO", "proveedor": "LOGITECH", "unidad": "UNIDAD", "stock_inicial": 15.0, "stock_actual": 15.0}
-    ]
+def cargar_todo_desde_excel():
+    df_movs = pd.DataFrame()
+    df_stk = pd.DataFrame()
+    
+    try:
+        # Forzamos lectura fresca agregando un parámetro de tiempo aleatorio para evitar caché de Google/Streamlit
+        import time
+        timestamp = int(time.time())
+        url_m = f"{URL_MOVIMIENTOS}&_t={timestamp}"
+        url_s = f"{URL_STOCK}&_t={timestamp}"
+        
+        df_movs = pd.read_csv(url_m)
+        df_stk = pd.read_csv(url_s)
+    except Exception as e:
+        st.error(f"Error al conectar con Google Sheets: {e}")
+        
+    return df_movs, df_stk
 
-if 'historial_movimientos' not in st.session_state:
-    st.session_state.historial_movimientos = []
+df_movs_web, df_stock_web = cargar_todo_desde_excel()
+
+def limpiar_texto(txt):
+    if not isinstance(txt, str):
+        txt = str(txt)
+    return ''.join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn').strip().lower()
+
+def obtener_columna_flexible(row, posibles_nombres, valor_por_defecto=""):
+    row_cleaned_keys = {limpiar_texto(str(c)): c for c in row.index}
+    for nombre in posibles_nombres:
+        nombre_limpio = limpiar_texto(nombre)
+        for k_limpio, k_real in row_cleaned_keys.items():
+            if nombre_limpio == k_limpio or nombre_limpio in k_limpio or k_limpio in nombre_limpio:
+                val = row[k_real]
+                if pd.notna(val) and str(val).strip() != "" and str(val).lower() != "nan":
+                    return val
+    return valor_por_defecto
+
+# Sincronizar siempre con TODO lo que venga de la pestaña Stock
+inventario_temp = []
+if not df_stock_web.empty:
+    for idx, r in df_stock_web.iterrows():
+        prod = str(obtener_columna_flexible(r, ['producto', 'descripcion', 'descripcion del producto', 'bien', 'item', 'articulo'], '')).strip().upper()
+        if prod and prod != 'NAN':
+            cat = str(obtener_columna_flexible(r, ['categoria', 'cat', 'clasificacion'], 'GENERAL')).strip().upper()
+            prov = str(obtener_columna_flexible(r, ['proveedor', 'marca', 'fabricante'], '')).strip().upper()
+            unid = str(obtener_columna_flexible(r, ['unidad', 'medida', 'um', 'unid', 'unidad medida'], 'UNIDAD')).strip().upper()
+            
+            try:
+                stock_ini = float(obtener_columna_flexible(r, ['inventario inicial', 'stock inicial', 'inicial', 'cantidad'], 0.0) or 0.0)
+            except:
+                stock_ini = 0.0
+                
+            try:
+                stock_act = float(obtener_columna_flexible(r, ['stock actual', 'stock_actual', 'actual', 'stock', 'saldo'], stock_ini) or stock_ini)
+            except:
+                stock_act = stock_ini
+
+            inventario_temp.append({
+                "id_fila": idx + 1,
+                "categoria": cat,
+                "producto": prod,
+                "proveedor": prov,
+                "unidad": unid,
+                "stock_inicial": stock_ini,
+                "stock_actual": stock_act
+            })
+st.session_state.inventario_bienes = inventario_temp
+
+# Sincronizar siempre con TODO lo que venga de la pestaña Movimientos
+movs_iniciales = []
+if not df_movs_web.empty:
+    for _, row in df_movs_web.iterrows():
+        d_dict = {str(k).strip(): v for k, v in row.to_dict().items() if pd.notna(v) and str(v).lower() != "nan"}
+        if d_dict:
+            movs_iniciales.append(d_dict)
+st.session_state.historial_movimientos = movs_iniciales
 
 if 'carrito_operaciones' not in st.session_state:
     st.session_state.carrito_operaciones = []
 
 # ==============================================================================
-# INTERFAZ PRINCIPAL CON PESTAÑAS EN STREAMLIT
+# INTERFAZ PRINCIPAL
 # ==============================================================================
 st.title("📦 SISTEMA INTEGRAL DE ALMACÉN Y KARDEX - ONPE")
 st.markdown("---")
 
 col_sup1, col_sup2 = st.columns([1, 1])
 with col_sup1:
-    if st.button("🔄 REINICIAR DATOS A VALORES DE PRUEBA"):
-        st.session_state.inventario_bienes = [
-            {"id_fila": 1, "categoria": "OFICINA", "producto": "PAPEL BOND A4 80G", "proveedor": "FABER CASTELL", "unidad": "MILLAR", "stock_inicial": 50.0, "stock_actual": 50.0},
-            {"id_fila": 2, "categoria": "OFICINA", "producto": "LAPICERO TINTA SECA AZUL", "proveedor": "BIC", "unidad": "UNIDAD", "stock_inicial": 200.0, "stock_actual": 200.0},
-            {"id_fila": 3, "categoria": "LIMPIEZA", "producto": "LEJIA 1 LITRO", "proveedor": "CLOROX", "unidad": "FRASCO", "stock_inicial": 30.0, "stock_actual": 30.0},
-            {"id_fila": 4, "categoria": "TECNOLOGIA", "producto": "MAUSE USB OPTICO", "proveedor": "LOGITECH", "unidad": "UNIDAD", "stock_inicial": 15.0, "stock_actual": 15.0}
-        ]
-        st.session_state.historial_movimientos = []
-        st.success("¡Datos restablecidos correctamente!")
+    if st.button("🔄 ACTUALIZAR Y LEER TODO EL EXCEL AHORA"):
+        st.success("¡Datos actualizados directamente desde Google Sheets!")
         st.rerun()
 
 with col_sup2:
@@ -77,7 +140,7 @@ with col_sup2:
             "Inventario Inicial": i['stock_inicial'],
             "Stock Actual": i['stock_actual']
         } for i in st.session_state.inventario_bienes])
-        df_stock_exp.to_excel(writer, sheet_name='Stock_Actual', index=False)
+        df_stock_exp.to_excel(writer, sheet_name='Stock', index=False)
         
         if st.session_state.historial_movimientos:
             df_movs_exp = pd.DataFrame(st.session_state.historial_movimientos)
@@ -125,7 +188,7 @@ with tab1:
     else:  # BAJA
         col_op1, col_op2 = st.columns(2)
         with col_op1:
-            motivo_baja = st.text_input("Motivo de la Baja", placeholder="Ej. Deterioro o rotura de almacén")
+            motivo_baja = st.text_input("Motivo de la Baja", placeholder="Ej. Deterioro")
         with col_op2:
             fecha_operacion = st.date_input("Fecha de baja", value=datetime.now().date())
 
@@ -135,38 +198,36 @@ with tab1:
     prod_seleccionado_label = st.selectbox("Seleccione Producto:", options=list(opciones_prod.keys()) if opciones_prod else ["No encontrado"])
     cantidad_op = st.number_input("Cantidad:", min_value=1, value=1)
 
-    btn_c1, btn_c2 = st.columns(2)
-    with btn_c1:
-        if st.button("➕ Agregar operación"):
-            if prod_seleccionado_label and prod_seleccionado_label != "No encontrado":
-                nombre_p = opciones_prod[prod_seleccionado_label]
-                prod_obj = next((i for i in st.session_state.inventario_bienes if i['producto'] == nombre_p), None)
-                if prod_obj:
-                    if ("SALIDA" in tipo_operacion or "BAJA" in tipo_operacion) and cantidad_op > prod_obj['stock_actual']:
-                        st.error(f"¡Stock insuficiente! Stock actual de '{nombre_p}' es {prod_obj['stock_actual']}.")
-                    else:
-                        st.session_state.carrito_operaciones.append({
-                            "tipo_operacion": tipo_operacion,
-                            "producto": nombre_p,
-                            "cantidad": cantidad_op,
-                            "personal_solicitante": personal_solicitante if "SALIDA" in tipo_operacion else "",
-                            "orden_compra": orden_compra if "INGRESO" in tipo_operacion else "",
-                            "fecha_operacion": str(fecha_operacion)
-                        })
-                        st.success(f"Añadido a operaciones: {nombre_p} ({cantidad_op})")
+    if st.button("➕ Agregar operación"):
+        if prod_seleccionado_label and prod_seleccionado_label != "No encontrado":
+            nombre_p = opciones_prod[prod_seleccionado_label]
+            prod_obj = next((i for i in st.session_state.inventario_bienes if i['producto'] == nombre_p), None)
+            if prod_obj:
+                if ("SALIDA" in tipo_operacion or "BAJA" in tipo_operacion) and cantidad_op > prod_obj['stock_actual']:
+                    st.error(f"¡Stock insuficiente! Stock actual de '{nombre_p}' es {prod_obj['stock_actual']}.")
+                else:
+                    st.session_state.carrito_operaciones.append({
+                        "tipo_operacion": tipo_operacion,
+                        "producto": nombre_p,
+                        "cantidad": cantidad_op,
+                        "personal_solicitante": personal_solicitante if "SALIDA" in tipo_operacion else "",
+                        "orden_compra": orden_compra if "INGRESO" in tipo_operacion else "",
+                        "fecha_operacion": str(fecha_operacion)
+                    })
+                    st.success(f"Añadido a operaciones: {nombre_p} ({cantidad_op})")
 
     st.markdown("**Resumen de operaciones:**")
     if st.session_state.carrito_operaciones:
         for idx_it, itm in enumerate(st.session_state.carrito_operaciones):
             cols_car = st.columns([6, 1])
             with cols_car[0]:
-                st.text(f"• [{itm['tipo_operacion']}] {itm['producto']} - Cantidad: {itm['cantidad']} | Fecha Op: {itm['fecha_operacion']}")
+                st.text(f"• [{itm['tipo_operacion']}] {itm['producto']} - Cantidad: {itm['cantidad']} | Fecha: {itm['fecha_operacion']}")
             with cols_car[1]:
                 if st.button("❌", key=f"del_carrito_{idx_it}"):
                     st.session_state.carrito_operaciones.pop(idx_it)
                     st.rerun()
         
-        if st.button("💾 Confirmar y Aplicar Operaciones del Carrito"):
+        if st.button("💾 Confirmar y Aplicar Operaciones"):
             fecha_registro_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             for itm in st.session_state.carrito_operaciones:
                 for prod in st.session_state.inventario_bienes:
@@ -197,14 +258,14 @@ with tab1:
                         break
             
             st.session_state.carrito_operaciones.clear()
-            st.success("¡Operaciones aplicadas y registradas correctamente!")
+            st.success("¡Operaciones aplicadas correctamente!")
             st.rerun()
     else:
         st.caption("(Registro de operaciones vacío)")
 
 # --- PESTAÑA 2: STOCK Y GUARDADO ---
 with tab2:
-    st.subheader("Stock Actual y Guardado")
+    st.subheader("Stock Actual y Guardado (Todo el contenido del Excel)")
     
     lista_cat_stock = ['[TODOS]'] + sorted(list(set(i['categoria'] for i in st.session_state.inventario_bienes)))
     lista_prov_stock = ['[TODOS]'] + sorted(list(set(i['proveedor'] for i in st.session_state.inventario_bienes if i['proveedor'])))
@@ -238,14 +299,10 @@ with tab2:
 
 # --- PESTAÑA 3: MOVIMIENTOS ---
 with tab3:
-    st.subheader("Historial General de Movimientos (Entradas, Salidas y Bajas)")
+    st.subheader("Historial General de Movimientos (Todo el contenido del Excel)")
     
     if st.session_state.historial_movimientos:
-        lista_movs_limpia = []
-        for m in st.session_state.historial_movimientos:
-            m_copy = {str(k): v for k, v in m.items()}
-            lista_movs_limpia.append(m_copy)
-            
+        lista_movs_limpia = [{str(k): v for k, v in m.items()} for m in st.session_state.historial_movimientos]
         df_movs_total = pd.DataFrame(lista_movs_limpia)
         if "Borrar" not in df_movs_total.columns:
             df_movs_total.insert(0, "Borrar", False)
@@ -259,13 +316,12 @@ with tab3:
         
         if st.button("🗑️ Eliminar registros seleccionados"):
             indices_a_borrar = df_editado[df_editado["Borrar"] == True].index.tolist()
-            
             if indices_a_borrar:
                 for idx in sorted(indices_a_borrar, reverse=True):
                     st.session_state.historial_movimientos.pop(idx)
-                st.success("¡Registros seleccionados eliminados correctamente!")
+                st.success("¡Registros eliminados correctamente!")
                 st.rerun()
             else:
                 st.warning("No has seleccionado ningún registro para borrar.")
     else:
-        st.warning("No hay registros de movimientos disponibles todavía. Realiza una operación en la pestaña 'Registrar' para verlos aquí.")
+        st.warning("No hay registros de movimientos disponibles en la hoja de cálculo.")
