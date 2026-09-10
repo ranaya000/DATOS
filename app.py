@@ -3,17 +3,17 @@ import pandas as pd
 import io
 import unicodedata
 from datetime import datetime
-from streamlit_gsheets import GSheetsConnection
 
 # ==============================================================================
 # CONFIGURACIÓN INICIAL
 # ==============================================================================
 st.set_page_config(page_title="Sistema de Almacén - ONPE", page_icon="📦", layout="wide")
 
-# ==============================================================================
-# CONEXIÓN A GOOGLE SHEETS
-# ==============================================================================
-conn = st.connection("gsheets", type=GSheetsConnection)
+# URL PUBLICA DE TU GOOGLE SHEET (Exportado como CSV o mediante gviz)
+# Usaremos un método directo de lectura por URL que no falla con las credenciales de gsheets
+SPREADSHEET_ID = "1F8e71glxH_3FaMUzdkUkIW_17qw_INT74249qwarpQ"
+URL_STOCK = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=stock"
+URL_MOVIMIENTOS = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=movimientos"
 
 # ==============================================================================
 # SISTEMA DE AUTENTICACIÓN (LOGIN)
@@ -37,45 +37,31 @@ if not st.session_state.autenticado:
     st.stop()
 
 # ==============================================================================
-# LÓGICA DE NEGOCIO Y CARGA DE DATOS DESDE GOOGLE SHEETS (FLEXIBLE)
+# CARGA DE DATOS DIRECTA DESDE GOOGLE SHEETS
 # ==============================================================================
 @st.cache_data(ttl=0)
-def cargar_datos_sistema():
-    df_movimientos_init = pd.DataFrame()
+def cargar_datos_web():
     df_stock = pd.DataFrame()
+    df_movimientos = pd.DataFrame()
     
     try:
-        # Leemos la hoja de cálculo completa sin especificar pestaña para detectar las hojas reales
-        spreadsheet_data = conn.read(ttl=0)
-    except Exception:
-        spreadsheet_data = None
-
-    # Como la librería puede devolver un DataFrame o un diccionario de hojas según la versión,
-    # forzaremos la lectura directa probando nombres comunes de pestañas.
-    
-    # Intentos para Stock
-    for nombre in ["Stock", "stock", "STOCK", "Hoja 1", "hoja 1", "Sheet1"]:
+        df_stock = pd.read_csv(URL_STOCK)
+    except Exception as e:
+        # Intento con la primera pestaña genérica si falla el nombre
         try:
-            temp = conn.read(worksheet=nombre, ttl=0)
-            if temp is not None and not temp.empty:
-                df_stock = temp
-                break
-        except Exception:
+            url_gen_1 = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv"
+            df_stock = pd.read_csv(url_gen_1)
+        except:
             pass
 
-    # Intentos para Movimientos
-    for nombre in ["Movimientos", "movimientos", "MOVIMIENTOS", "Hoja 2", "hoja 2", "Sheet2"]:
-        try:
-            temp = conn.read(worksheet=nombre, ttl=0)
-            if temp is not None and not temp.empty:
-                df_movimientos_init = temp
-                break
-        except Exception:
-            pass
+    try:
+        df_movimientos = pd.read_csv(URL_MOVIMIENTOS)
+    except:
+        pass
+        
+    return df_stock, df_movimientos
 
-    return df_movimientos_init, df_stock
-
-df_movimientos_init_global, df_stock_global = cargar_datos_sistema()
+df_stock_global, df_movimientos_init_global = cargar_datos_web()
 
 def obtener_columna_flexible(row, posibles_nombres, valor_por_defecto=""):
     def limpiar_texto(txt):
@@ -151,33 +137,10 @@ st.markdown("---")
 
 col_sup1, col_sup2 = st.columns([1, 1])
 with col_sup1:
-    if st.button("💾 GUARDAR TODOS LOS CAMBIOS GENERALES"):
-        try:
-            df_stock_save = pd.DataFrame([{
-                "Categoría": i['categoria'],
-                "Producto": i['producto'],
-                "Proveedor": i['proveedor'],
-                "Unidad Medida": i['unidad'],
-                "Inventario Inicial": i['stock_inicial'],
-                "Stock Actual": i['stock_actual']
-            } for i in st.session_state.inventario_bienes])
-            
-            conn.update(worksheet="Stock", data=df_stock_save)
-            
-            if st.session_state.historial_movimientos:
-                df_movs_save = pd.DataFrame(st.session_state.historial_movimientos)
-                conn.update(worksheet="Movimientos", data=df_movs_save)
-            else:
-                df_vacio = pd.DataFrame(columns=[
-                    "Fecha registro", "Fecha operación", "Personal solicitante", 
-                    "Orden de compra", "Categoría", "Descripción del Producto", 
-                    "Proveedor", "Unidad Medida", "Cantidad", "Tipo de registro"
-                ])
-                conn.update(worksheet="Movimientos", data=df_vacio)
-                
-            st.success("¡Todos los cambios y movimientos han sido guardados exitosamente en Google Sheets!")
-        except Exception as e:
-            st.error(f"Error al guardar en Google Sheets: {e}")
+    if st.button("💾 RECARGAR DATOS DESDE GOOGLE SHEETS"):
+        st.cache_data.clear()
+        st.success("¡Caché limpiada correctamente. Recargando datos...")
+        st.rerun()
 
 with col_sup2:
     output = io.BytesIO()
@@ -310,7 +273,7 @@ with tab1:
                         break
             
             st.session_state.carrito_operaciones.clear()
-            st.success("¡Operaciones aplicadas y registradas correctamente!")
+            st.success("¡Operaciones aplicadas y registradas correctamente en memoria!")
             st.rerun()
     else:
         st.caption("(Registro de operaciones vacío)")
@@ -352,7 +315,6 @@ with tab2:
 # --- PESTAÑA 3: MOVIMIENTOS ---
 with tab3:
     st.subheader("Historial General de Movimientos (Entradas, Salidas y Bajas)")
-    st.markdown("Marca en la columna **'Borrar'** de la tabla los registros erróneos y haz clic en el botón inferior para eliminarlos.")
     
     if st.session_state.historial_movimientos:
         lista_movs_limpia = []
@@ -377,7 +339,6 @@ with tab3:
             if indices_a_borrar:
                 for idx in sorted(indices_a_borrar, reverse=True):
                     st.session_state.historial_movimientos.pop(idx)
-                
                 st.success("¡Registros seleccionados eliminados correctamente!")
                 st.rerun()
             else:
