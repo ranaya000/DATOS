@@ -39,27 +39,32 @@ if not st.session_state.autenticado:
 # ==============================================================================
 # LÓGICA DE NEGOCIO Y CARGA DE DATOS DESDE GOOGLE SHEETS
 # ==============================================================================
-@st.cache_data
+@st.cache_data(ttl=0)
 def cargar_datos_sistema():
     df_movimientos_init = pd.DataFrame()
     df_stock = pd.DataFrame()
-    dict_seguimiento = {}
     
-    # Cargamos el stock desde la pestaña "Stock" de tu Google Sheet
-    try:
-        df_stock = conn.read(worksheet="Stock", ttl=0)
-    except Exception:
-        pass
+    # Intentamos leer la pestaña Stock (buscando variaciones de nombre por seguridad)
+    for nombre_pestana in ["Stock", "stock", "STOCK"]:
+        try:
+            df_stock = conn.read(worksheet=nombre_pestana, ttl=0)
+            if not df_stock.empty:
+                break
+        except Exception:
+            pass
 
-    # Cargamos los movimientos desde la pestaña "Movimientos" de tu Google Sheet
-    try:
-        df_movimientos_init = conn.read(worksheet="Movimientos", ttl=0)
-    except Exception:
-        pass
+    # Intentamos leer la pestaña Movimientos
+    for nombre_pestana in ["Movimientos", "movimientos", "MOVIMIENTOS"]:
+        try:
+            df_movimientos_init = conn.read(worksheet=nombre_pestana, ttl=0)
+            if not df_movimientos_init.empty:
+                break
+        except Exception:
+            pass
 
-    return dict_seguimiento, df_movimientos_init, df_stock
+    return df_movimientos_init, df_stock
 
-dict_seguimiento_global, df_movimientos_init_global, df_stock_global = cargar_datos_sistema()
+df_movimientos_init_global, df_stock_global = cargar_datos_sistema()
 
 def obtener_columna_flexible(row, posibles_nombres, valor_por_defecto=""):
     def limpiar_texto(txt):
@@ -67,19 +72,19 @@ def obtener_columna_flexible(row, posibles_nombres, valor_por_defecto=""):
             txt = str(txt)
         return ''.join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn').strip().lower()
 
-    row_cleaned_keys = {limpiar_texto(c): c for c in row.index}
+    row_cleaned_keys = {limpiar_texto(str(c)): c for c in row.index}
     
     for nombre in posibles_nombres:
         nombre_limpio = limpiar_texto(nombre)
         for k_limpio, k_real in row_cleaned_keys.items():
             if nombre_limpio == k_limpio:
                 val = row[k_real]
-                if pd.notna(val) and str(val).strip() != "":
+                if pd.notna(val) and str(val).strip() != "" and str(val).lower() != "nan":
                     return val
         for k_limpio, k_real in row_cleaned_keys.items():
             if nombre_limpio in k_limpio or k_limpio in nombre_limpio:
                 val = row[k_real]
-                if pd.notna(val) and str(val).strip() != "":
+                if pd.notna(val) and str(val).strip() != "" and str(val).lower() != "nan":
                     return val
     return valor_por_defecto
 
@@ -87,10 +92,10 @@ if 'inventario_bienes' not in st.session_state:
     inventario_temp = []
     if not df_stock_global.empty:
         for idx, r in df_stock_global.iterrows():
-            prod = str(obtener_columna_flexible(r, ['producto', 'descripcion', 'bien', 'item', 'articulo', 'detalle'], '')).strip().upper()
+            prod = str(obtener_columna_flexible(r, ['producto', 'descripcion', 'descripcion del producto', 'bien', 'item', 'articulo', 'detalle'], '')).strip().upper()
             cat = str(obtener_columna_flexible(r, ['categoria', 'cat', 'clasificacion'], 'GENERAL')).strip().upper()
             prov = str(obtener_columna_flexible(r, ['proveedor', 'marca', 'fabricante'], '')).strip().upper()
-            unid = str(obtener_columna_flexible(r, ['unidad', 'medida', 'um', 'unid'], 'UNIDAD')).strip().upper()
+            unid = str(obtener_columna_flexible(r, ['unidad', 'medida', 'um', 'unid', 'unidad medida'], 'UNIDAD')).strip().upper()
             
             try:
                 stock_ini = float(obtener_columna_flexible(r, ['inventario inicial', 'stock inicial', 'inicial', 'cantidad', 'stock_inicial'], 0.0) or 0.0)
@@ -120,13 +125,6 @@ if 'historial_movimientos' not in st.session_state:
     if not df_movimientos_init_global.empty:
         for _, row in df_movimientos_init_global.iterrows():
             d_dict = row.to_dict()
-            if 'Tipo' in d_dict and 'Tipo de registro' not in d_dict:
-                d_dict['Tipo de registro'] = d_dict.pop('Tipo')
-            if 'Guía de remisión' in d_dict:
-                d_dict['Personal solicitante'] = d_dict.pop('Guía de remisión')
-            for col_elim in ['Costo unitario', 'Subtotal', 'Detalle / Referencia', 'Detalle / Observación', 'Tipo']:
-                if col_elim in d_dict:
-                    del d_dict[col_elim]
             movs_iniciales.append(d_dict)
     st.session_state.historial_movimientos = movs_iniciales
 
@@ -347,23 +345,7 @@ with tab3:
     if st.session_state.historial_movimientos:
         lista_movs_limpia = []
         for m in st.session_state.historial_movimientos:
-            m_copy = m.copy()
-            if 'Tipo' in m_copy and 'Tipo de registro' not in m_copy:
-                m_copy['Tipo de registro'] = m_copy.pop('Tipo')
-            elif 'Tipo' in m_copy:
-                del m_copy['Tipo']
-                
-            if 'Guía de remisión' in m_copy:
-                m_copy['Personal solicitante'] = m_copy.pop('Guía de remisión')
-                
-            for col_elim in ['Costo unitario', 'Subtotal', 'Detalle / Referencia', 'Detalle / Observación']:
-                if col_elim in m_copy:
-                    del m_copy[col_elim]
-            
-            if not m_copy.get('Proveedor') or str(m_copy.get('Proveedor')) == 'nan' or str(m_copy.get('Proveedor')) == 'None':
-                p_encontrado = next((i['proveedor'] for i in st.session_state.inventario_bienes if i['producto'] == m_copy.get('Descripción del Producto')), "")
-                m_copy['Proveedor'] = p_encontrado
-                
+            m_copy = {str(k): v for k, v in m.items()}
             lista_movs_limpia.append(m_copy)
             
         df_movs_total = pd.DataFrame(lista_movs_limpia)
@@ -382,22 +364,9 @@ with tab3:
             
             if indices_a_borrar:
                 for idx in sorted(indices_a_borrar, reverse=True):
-                    mov_item = st.session_state.historial_movimientos[idx]
-                    prod_afectado = mov_item.get('Descripción del Producto')
-                    cant_afectada = float(mov_item.get('Cantidad', 0))
-                    tipo_afectado = mov_item.get('Tipo de registro', mov_item.get('Tipo', ''))
-                    
-                    for prod in st.session_state.inventario_bienes:
-                        if prod['producto'] == prod_afectado:
-                            if str(tipo_afectado).lower() in ["ingreso", "entrada"]:
-                                prod['stock_actual'] -= cant_afectada
-                            elif str(tipo_afectado).lower() in ["salida", "baja"]:
-                                prod['stock_actual'] += cant_afectada
-                            break
-                    
                     st.session_state.historial_movimientos.pop(idx)
                 
-                st.success("¡Registros seleccionados eliminados y stock ajustado correctamente!")
+                st.success("¡Registros seleccionados eliminados correctamente!")
                 st.rerun()
             else:
                 st.warning("No has seleccionado ningún registro para borrar.")
