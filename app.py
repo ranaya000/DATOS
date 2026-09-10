@@ -12,9 +12,12 @@ def conectar_gsheets():
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
         ]
-        # Conexión directa y limpia usando el archivo credenciales.json de tu repositorio
-        creds = Credentials.from_service_account_file("credenciales.json", scopes=scope)
+        
+        # Lee directamente desde st.secrets de forma segura
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
+        
         spreadsheet = client.open("BD_Movimientos")
         return spreadsheet
     except Exception as e:
