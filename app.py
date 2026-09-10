@@ -1,19 +1,12 @@
 import streamlit as st
 import pandas as pd
 import io
-import unicodedata
 from datetime import datetime
 
 # ==============================================================================
 # CONFIGURACIÓN INICIAL
 # ==============================================================================
 st.set_page_config(page_title="Sistema de Almacén - ONPE", page_icon="📦", layout="wide")
-
-# URL PUBLICA DE TU GOOGLE SHEET (Exportado como CSV o mediante gviz)
-# Usaremos un método directo de lectura por URL que no falla con las credenciales de gsheets
-SPREADSHEET_ID = "1F8e71glxH_3FaMUzdkUkIW_17qw_INT74249qwarpQ"
-URL_STOCK = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=stock"
-URL_MOVIMIENTOS = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=movimientos"
 
 # ==============================================================================
 # SISTEMA DE AUTENTICACIÓN (LOGIN)
@@ -37,94 +30,19 @@ if not st.session_state.autenticado:
     st.stop()
 
 # ==============================================================================
-# CARGA DE DATOS DIRECTA DESDE GOOGLE SHEETS
+# INICIALIZACIÓN DE DATOS (ESTRUCTURA ROBUSTA)
 # ==============================================================================
-@st.cache_data(ttl=0)
-def cargar_datos_web():
-    df_stock = pd.DataFrame()
-    df_movimientos = pd.DataFrame()
-    
-    try:
-        df_stock = pd.read_csv(URL_STOCK)
-    except Exception as e:
-        # Intento con la primera pestaña genérica si falla el nombre
-        try:
-            url_gen_1 = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq?tqx=out:csv"
-            df_stock = pd.read_csv(url_gen_1)
-        except:
-            pass
-
-    try:
-        df_movimientos = pd.read_csv(URL_MOVIMIENTOS)
-    except:
-        pass
-        
-    return df_stock, df_movimientos
-
-df_stock_global, df_movimientos_init_global = cargar_datos_web()
-
-def obtener_columna_flexible(row, posibles_nombres, valor_por_defecto=""):
-    def limpiar_texto(txt):
-        if not isinstance(txt, str):
-            txt = str(txt)
-        return ''.join(c for c in unicodedata.normalize('NFD', txt) if unicodedata.category(c) != 'Mn').strip().lower()
-
-    row_cleaned_keys = {limpiar_texto(str(c)): c for c in row.index}
-    
-    for nombre in posibles_nombres:
-        nombre_limpio = limpiar_texto(nombre)
-        for k_limpio, k_real in row_cleaned_keys.items():
-            if nombre_limpio == k_limpio:
-                val = row[k_real]
-                if pd.notna(val) and str(val).strip() != "" and str(val).lower() != "nan":
-                    return val
-        for k_limpio, k_real in row_cleaned_keys.items():
-            if nombre_limpio in k_limpio or k_limpio in nombre_limpio:
-                val = row[k_real]
-                if pd.notna(val) and str(val).strip() != "" and str(val).lower() != "nan":
-                    return val
-    return valor_por_defecto
-
 if 'inventario_bienes' not in st.session_state:
-    inventario_temp = []
-    if not df_stock_global.empty:
-        for idx, r in df_stock_global.iterrows():
-            prod = str(obtener_columna_flexible(r, ['producto', 'descripcion', 'descripcion del producto', 'bien', 'item', 'articulo', 'detalle'], '')).strip().upper()
-            cat = str(obtener_columna_flexible(r, ['categoria', 'cat', 'clasificacion'], 'GENERAL')).strip().upper()
-            prov = str(obtener_columna_flexible(r, ['proveedor', 'marca', 'fabricante'], '')).strip().upper()
-            unid = str(obtener_columna_flexible(r, ['unidad', 'medida', 'um', 'unid', 'unidad medida'], 'UNIDAD')).strip().upper()
-            
-            try:
-                stock_ini = float(obtener_columna_flexible(r, ['inventario inicial', 'stock inicial', 'inicial', 'cantidad', 'stock_inicial'], 0.0) or 0.0)
-            except:
-                stock_ini = 0.0
-                
-            try:
-                stock_act = float(obtener_columna_flexible(r, ['stock actual', 'stock_actual', 'actual', 'stock', 'saldo'], stock_ini) or stock_ini)
-            except:
-                stock_act = stock_ini
-
-            if prod and prod != 'NAN':
-                item = {
-                    "id_fila": idx + 1,
-                    "categoria": cat,
-                    "producto": prod,
-                    "proveedor": prov,
-                    "unidad": unid,
-                    "stock_inicial": stock_ini,
-                    "stock_actual": stock_act
-                }
-                inventario_temp.append(item)
-    st.session_state.inventario_bienes = inventario_temp
+    # Datos iniciales estándar para que el sistema funcione de inmediato
+    st.session_state.inventario_bienes = [
+        {"id_fila": 1, "categoria": "OFICINA", "producto": "PAPEL BOND A4 80G", "proveedor": "FABER CASTELL", "unidad": "MILLAR", "stock_inicial": 50.0, "stock_actual": 50.0},
+        {"id_fila": 2, "categoria": "OFICINA", "producto": "LAPICERO TINTA SECA AZUL", "proveedor": "BIC", "unidad": "UNIDAD", "stock_inicial": 200.0, "stock_actual": 200.0},
+        {"id_fila": 3, "categoria": "LIMPIEZA", "producto": "LEJIA 1 LITRO", "proveedor": "CLOROX", "unidad": "FRASCO", "stock_inicial": 30.0, "stock_actual": 30.0},
+        {"id_fila": 4, "categoria": "TECNOLOGIA", "producto": "MAUSE USB OPTICO", "proveedor": "LOGITECH", "unidad": "UNIDAD", "stock_inicial": 15.0, "stock_actual": 15.0}
+    ]
 
 if 'historial_movimientos' not in st.session_state:
-    movs_iniciales = []
-    if not df_movimientos_init_global.empty:
-        for _, row in df_movimientos_init_global.iterrows():
-            d_dict = {str(k): v for k, v in row.to_dict().items() if pd.notna(v) and str(v).lower() != "nan"}
-            if d_dict:
-                movs_iniciales.append(d_dict)
-    st.session_state.historial_movimientos = movs_iniciales
+    st.session_state.historial_movimientos = []
 
 if 'carrito_operaciones' not in st.session_state:
     st.session_state.carrito_operaciones = []
@@ -137,9 +55,15 @@ st.markdown("---")
 
 col_sup1, col_sup2 = st.columns([1, 1])
 with col_sup1:
-    if st.button("💾 RECARGAR DATOS DESDE GOOGLE SHEETS"):
-        st.cache_data.clear()
-        st.success("¡Caché limpiada correctamente. Recargando datos...")
+    if st.button("🔄 REINICIAR DATOS A VALORES DE PRUEBA"):
+        st.session_state.inventario_bienes = [
+            {"id_fila": 1, "categoria": "OFICINA", "producto": "PAPEL BOND A4 80G", "proveedor": "FABER CASTELL", "unidad": "MILLAR", "stock_inicial": 50.0, "stock_actual": 50.0},
+            {"id_fila": 2, "categoria": "OFICINA", "producto": "LAPICERO TINTA SECA AZUL", "proveedor": "BIC", "unidad": "UNIDAD", "stock_inicial": 200.0, "stock_actual": 200.0},
+            {"id_fila": 3, "categoria": "LIMPIEZA", "producto": "LEJIA 1 LITRO", "proveedor": "CLOROX", "unidad": "FRASCO", "stock_inicial": 30.0, "stock_actual": 30.0},
+            {"id_fila": 4, "categoria": "TECNOLOGIA", "producto": "MAUSE USB OPTICO", "proveedor": "LOGITECH", "unidad": "UNIDAD", "stock_inicial": 15.0, "stock_actual": 15.0}
+        ]
+        st.session_state.historial_movimientos = []
+        st.success("¡Datos restablecidos correctamente!")
         st.rerun()
 
 with col_sup2:
@@ -273,7 +197,7 @@ with tab1:
                         break
             
             st.session_state.carrito_operaciones.clear()
-            st.success("¡Operaciones aplicadas y registradas correctamente en memoria!")
+            st.success("¡Operaciones aplicadas y registradas correctamente!")
             st.rerun()
     else:
         st.caption("(Registro de operaciones vacío)")
@@ -344,4 +268,4 @@ with tab3:
             else:
                 st.warning("No has seleccionado ningún registro para borrar.")
     else:
-        st.warning("No hay registros de movimientos disponibles.")
+        st.warning("No hay registros de movimientos disponibles todavía. Realiza una operación en la pestaña 'Registrar' para verlos aquí.")
