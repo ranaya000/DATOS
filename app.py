@@ -13,8 +13,11 @@ def conectar_gsheets():
             "https://www.googleapis.com/auth/drive"
         ]
         
-        # Lee directamente desde st.secrets de forma segura
+        # Convertimos los secretos a diccionario y corregimos los saltos de línea del PEM
         creds_dict = dict(st.secrets["gcp_service_account"])
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+            
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
         
