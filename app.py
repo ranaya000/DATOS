@@ -3,11 +3,17 @@ import pandas as pd
 import io
 import unicodedata
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 
 # ==============================================================================
 # CONFIGURACIÓN INICIAL
 # ==============================================================================
 st.set_page_config(page_title="Sistema de Almacén - ONPE", page_icon="📦", layout="wide")
+
+# ==============================================================================
+# CONEXIÓN A GOOGLE SHEETS
+# ==============================================================================
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 # ==============================================================================
 # SISTEMA DE AUTENTICACIÓN (LOGIN)
@@ -31,7 +37,7 @@ if not st.session_state.autenticado:
     st.stop()
 
 # ==============================================================================
-# LÓGICA DE NEGOCIO Y CARGA DE DATOS
+# LÓGICA DE NEGOCIO Y CARGA DE DATOS DESDE GOOGLE SHEETS
 # ==============================================================================
 @st.cache_data
 def cargar_datos_sistema():
@@ -39,55 +45,17 @@ def cargar_datos_sistema():
     df_stock = pd.DataFrame()
     dict_seguimiento = {}
     
-    archivos_seguimiento = {
-        "SGGDI EG 2026": 'LISTA SGGDI EG 2026 (1).xlsx',
-        "EG 2026 (SEP)": 'GITE - EG 2026 (SEP) 2026 (1)-PARA SEGUIMIENTO -30-06-2026.xlsx',
-        "ERM (EP) 2026": 'GITE - ERM (EP) 2026 CON SUBGERENCIAS (1).xlsx',
-        "CN PROCESOS ELECTORALES 2026": 'GITE CN PROCESOS ELECTORALES 2026 - PARA SEGUIMIENTO 30-06-2026.xlsx'
-    }
-
-    for nombre_key, filename in archivos_seguimiento.items():
-        try:
-            xls = pd.ExcelFile(filename)
-            sheet_to_load = xls.sheet_names[0]
-            for s in xls.sheet_names:
-                if any(k in s.lower() for k in ['biene', 'programación', 'aprobada', 'base']):
-                    sheet_to_load = s
-                    break
-            
-            df_raw = pd.read_excel(filename, sheet_name=sheet_to_load, header=None)
-            header_row = 0
-            for idx, row in df_raw.iterrows():
-                fila_str = str(row.values).upper()
-                if 'AÑO' in fila_str or 'CATEGORÍA' in fila_str or 'ÓRGANO' in fila_str or 'DESCRIPCIÓN' in fila_str:
-                    header_row = idx
-                    break
-            
-            df_temp = pd.read_excel(filename, sheet_name=sheet_to_load, header=header_row)
-            df_temp = df_temp.loc[:, ~df_temp.columns.astype(str).str.contains('^Unnamed')]
-            df_temp['ARCHIVO_ORIGEN'] = nombre_key
-            dict_seguimiento[nombre_key] = df_temp
-        except Exception:
-            pass
-
+    # Cargamos el stock desde la pestaña "Stock" de tu Google Sheet
     try:
-        df_movimientos_init = pd.read_excel('movimientos.xlsx')
+        df_stock = conn.read(worksheet="Stock", ttl=0)
     except Exception:
         pass
 
-    for archivo_stock in ['stock_2.xlsx', 'stock_actualizado.xlsx', 'GITE - EG 2026 (SEP) 2026 (1)-PARA SEGUIMIENTO -30-06-2026.xlsx']:
-        try:
-            xls_s = pd.ExcelFile(archivo_stock)
-            sheet_s = xls_s.sheet_names[0]
-            for s in xls_s.sheet_names:
-                if 'biene' in s.lower() or 'stock' in s.lower():
-                    sheet_s = s
-                    break
-            df_stock = pd.read_excel(archivo_stock, sheet_name=sheet_s)
-            if not df_stock.empty:
-                break
-        except Exception:
-            pass
+    # Cargamos los movimientos desde la pestaña "Movimientos" de tu Google Sheet
+    try:
+        df_movimientos_init = conn.read(worksheet="Movimientos", ttl=0)
+    except Exception:
+        pass
 
     return dict_seguimiento, df_movimientos_init, df_stock
 
@@ -183,21 +151,23 @@ with col_sup1:
                 "Inventario Inicial": i['stock_inicial'],
                 "Stock Actual": i['stock_actual']
             } for i in st.session_state.inventario_bienes])
-            df_stock_save.to_excel('stock_actualizado.xlsx', index=False)
+            
+            conn.update(worksheet="Stock", data=df_stock_save)
             
             if st.session_state.historial_movimientos:
                 df_movs_save = pd.DataFrame(st.session_state.historial_movimientos)
-                df_movs_save.to_excel('movimientos.xlsx', index=False)
+                conn.update(worksheet="Movimientos", data=df_movs_save)
             else:
-                pd.DataFrame(columns=[
+                df_vacio = pd.DataFrame(columns=[
                     "Fecha registro", "Fecha operación", "Personal solicitante", 
                     "Orden de compra", "Categoría", "Descripción del Producto", 
                     "Proveedor", "Unidad Medida", "Cantidad", "Tipo de registro"
-                ]).to_excel('movimientos.xlsx', index=False)
+                ])
+                conn.update(worksheet="Movimientos", data=df_vacio)
                 
-            st.success("¡Todos los cambios y movimientos han sido guardados exitosamente en el servidor (archivos locales) y consolidados en el sistema!")
+            st.success("¡Todos los cambios y movimientos han sido guardados exitosamente en Google Sheets!")
         except Exception as e:
-            st.error(f"Error al guardar los archivos en el servidor: {e}")
+            st.error(f"Error al guardar en Google Sheets: {e}")
 
 with col_sup2:
     output = io.BytesIO()
@@ -216,13 +186,9 @@ with col_sup2:
             df_movs_exp = pd.DataFrame(st.session_state.historial_movimientos)
             df_movs_exp.to_excel(writer, sheet_name='Movimientos', index=False)
             
-        for k_seg, df_seg in dict_seguimiento_global.items():
-            sheet_name_clean = ''.join(c for c in k_seg if c.isalnum() or c==' ')[:31]
-            df_seg.to_excel(writer, sheet_name=sheet_name_clean, index=False)
-            
     processed_data = output.getvalue()
     st.download_button(
-        label="📥 DESCARGAR REPORTE GENERAL EN EXCEL (Múltiples Hojas)",
+        label="📥 DESCARGAR REPORTE GENERAL EN EXCEL",
         data=processed_data,
         file_name="reporte_general_almacen_onpe.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -230,11 +196,10 @@ with col_sup2:
 
 st.markdown("---")
 
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3 = st.tabs([
     "📝 Registrar", 
     "📊 Stock y Guardado", 
-    "📤 Movimientos (Entradas, Salidas y Bajas)", 
-    "🔍 Gerencia, Subgerencia y Seguimiento"
+    "📤 Movimientos (Entradas, Salidas y Bajas)"
 ])
 
 # --- PESTAÑA 1: REGISTRAR ---
@@ -438,54 +403,3 @@ with tab3:
                 st.warning("No has seleccionado ningún registro para borrar.")
     else:
         st.warning("No hay registros de movimientos disponibles.")
-
-# --- PESTAÑA 4: CONSULTA DE REQUERIMIENTOS ---
-with tab4:
-    st.subheader("Consulta por Gerencia / Subgerencia y Requerimientos")
-    st.markdown("*(Independiente del stock general de almacén)*")
-    
-    if dict_seguimiento_global:
-        opciones_archivos = ['[TODOS]'] + list(dict_seguimiento_global.keys())
-        archivo_sel = st.selectbox("Seleccionar Archivo / Proceso de Seguimiento:", options=opciones_archivos)
-        
-        if archivo_sel == '[TODOS]':
-            df_actual = pd.concat(list(dict_seguimiento_global.values()), ignore_index=True, sort=False)
-        else:
-            df_actual = dict_seguimiento_global[archivo_sel]
-        
-        if not df_actual.empty:
-            cols_disponibles = list(df_actual.columns)
-            col_organo = next((c for c in cols_disponibles if 'órgano' in str(c).lower() or 'organo' in str(c).lower()), None)
-            col_tpptto = next((c for c in cols_disponibles if 'tipo de ppto' in str(c).lower() or 'tpptto' in str(c).lower()), None)
-            
-            f_col1, f_col2 = st.columns(2)
-            
-            if col_organo:
-                valores_organo = ['[TODOS]'] + sorted(df_actual[col_organo].dropna().astype(str).unique().tolist())
-                with f_col1: sel_organo = st.selectbox("Seleccionar Órgano:", options=valores_organo)
-            else:
-                with f_col1: sel_organo = '[TODOS]'
-            
-            if col_tpptto:
-                valores_tpptto = ['[TODOS]'] + sorted(df_actual[col_tpptto].dropna().astype(str).unique().tolist())
-                with f_col2: sel_tpptto = st.selectbox("Seleccionar Tipo de PPTO:", options=valores_tpptto)
-            else:
-                with f_col2: sel_tpptto = '[TODOS]'
-
-            busqueda_seg = st.text_input("🔍 Búsqueda general en requerimientos:")
-            
-            df_filtrado = df_actual.copy()
-            if col_organo and sel_organo != '[TODOS]':
-                df_filtrado = df_filtrado[df_filtrado[col_organo].astype(str) == sel_organo]
-            if col_tpptto and sel_tpptto != '[TODOS]':
-                df_filtrado = df_filtrado[df_filtrado[col_tpptto].astype(str) == sel_tpptto]
-            if busqueda_seg:
-                mask = df_filtrado.astype(str).apply(lambda x: x.str.contains(busqueda_seg, case=False, na=False)).any(axis=1)
-                df_filtrado = df_filtrado[mask]
-                
-            st.write(f"Registros encontrados: {len(df_filtrado)}")
-            st.dataframe(df_filtrado, use_container_width=True)
-        else:
-            st.warning("El archivo seleccionado está vacío.")
-    else:
-        st.warning("No se encontraron archivos de seguimiento en el directorio.")
