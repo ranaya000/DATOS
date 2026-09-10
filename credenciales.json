@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "shaped-inverter-508215-p4",
+  "private_key_id": "2dca3940c5f6ed1428c4753032c3c3e3e1ffe66f",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC+QIgn89K46ZeE\n70G+R0BummpwbsUBB/6FtRInInrFSPmNSZu4LdBOkkOeaj5yhnjkk1BeLYhqndNr\niQ4xKalQcTnkEj2ojigVhRrTXMdvrGSQqvbKacEQqoizyO5w7Du97iMOAVZlXovw\n+p+obLiIirm+f4CjvukF/B2AOEWx0bSYZdqgnoR3zOn7SM4Fr8b5AEa6khX2brti\nANFhjwPAsiOg5ApeizyEJxktZT0Wz3RU66HX3zVJzu18r9WMv69WLXgm0R4GKj6p\nYnyImMFIoIJX5fNqQk/o04Z20VdAM7htv3SxJ0+mnFQ9nNI/DO8fzCOAZE9+18Kf\nf0f6PUCnAgMBAAECggEAPHmGzixS7zRRVZA39aPwdzfeXZ7YQFuqLBZCju4G2G85\n5A9h0Em/zTnxBIoBD6ZvBzlMcqNGmZ1Rdv055aa4izlyjWy+7LVDSJPm0wjK3FSQ\nIuw1RmIXXJTYn01ffcWZt+XafrkuHUrQcOk5lu/4OG7gXA1rdqFYsO5S8k7w2HSk\nAgRBBU5rrwFtlX5VWHEenNLxjaYAEN9sMTR3D2KcmacAvQbvLg5YDkjDchphHMeN\nfq76h2JKDjcuJGpPzlxFQL9hEe6ezpiGsVut0qlAWkTnyfds/R4Vt/KdfdXu7klr\nNYW6ZT+eb1C8Ja2mDDc9Qw6PNhktvHqxt+ssoVITAQKBgQDf7uyS+/pfCuycmFRu\ng5kUDRNiJdNQLzs/PnZyVO2ebXr5+ZaLVu/rJQuVcl7h8ya1RpoVRg2q+T3F01L3\nXcwCZ10auWQ9PbuFHSsK+B8rUO66lLGY2uhHzVqQAkHH+HGed2GngN15FK6l4hno\nNtqFptGXMSZGWDtMCqQfjl8llQKBgQDZfub08euB3lybwMrzFkLaEwii5wlR4ldO\nUYqpt8Sj5XT4cuhIgSYOj9v8IB1SNBGdjcWjfvtnHQmID04Ryb2PefbhV/9Z73hL\nUZgw5YZUQMXPcdAwOw/e8IG+abReEsPBGlYiYxcQlhFTPkqJXr5KFVfqPKgp6rwk\nKlNvDRzGSwKBgQC+0tQIYO83JJEC1JBGaJ/+xTG6Vm9fChCb0TeQMC0Y70R3Vifi\nb2AdakEXxhFyzAg1O4e8DylAhAoO1QkDQIvDlJ9zUX5I7Z0pTvTJ8Sxmdh4pIuLA\nVfLQlP7SbwntRRpVJngyDA8uyeAV/bmD95J5h/FcvIZYNYG6R+sZ9PHBjQKBgQCm\n3bcCjKz8WYbBtLvAnv6xY1MH8Kv01+vV2bfCGIzUlhIVH8vY/MUe/P5xRI5aaDpv\nn7rXgnANn3iVm/Bws1AtSQzBvQrbjF/FoZdbRG24LG3Xh2GL73RwviM83MqWNl1b\nxQH6pf2nKwulyy/Sjw79tbxaqSj35/Fq6dJTbEL8WwKBgB2tIPeGc0BQtUaqw3uV\ng+pthl95w2DSZzCBURBVm3d9V9PZQCJ8K3s2vs1cw9EdxF1PV4gBdCZEeAYbwylE\nLwzCM+Q8kXDD6gb0jcRCPl5kIDqnaCJrvOOQj3g+Gfu7fDfeacHkx91wvXS54+Vw\naPCjOISscq378PL+0HjK1aO8\n-----END PRIVATE KEY-----\n",
+  "client_email": "almacen-onpe@shaped-inverter-508215-p4.iam.gserviceaccount.com",
+  "client_id": "106574411596174294892",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/almacen-onpe%40shaped-inverter-508215-p4.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
